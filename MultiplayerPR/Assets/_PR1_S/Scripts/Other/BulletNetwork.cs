@@ -9,6 +9,8 @@ namespace Multi.PR1
         [SerializeField] private int Damage = 25;
         [SerializeField] private float LifeTime = 3f;
 
+        private bool _hasHit = false;
+        
         public ulong OwnerId;
 
         public override void OnNetworkSpawn()
@@ -26,17 +28,19 @@ namespace Multi.PR1
 
         private void OnTriggerEnter(Collider other)
         {
-            if (!IsServer) return;
+            if (!IsServer || _hasHit) return;
             
             if (other.TryGetComponent(out PlayerNetwork hitPlayer))
             {
                 if (hitPlayer.OwnerClientId == OwnerId) return;
 
                 hitPlayer.TakeDamage(Damage, OwnerId);
+                _hasHit = true;
                 DestroyBullet();
             }
             else if (!other.isTrigger) 
             {
+                _hasHit = true;
                 DestroyBullet();
             }
         }

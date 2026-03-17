@@ -19,7 +19,6 @@ GameObject:
   - component: {fileID: 498675072277332079}
   - component: {fileID: 3142610405243302887}
   - component: {fileID: 5935825219246852585}
-  - component: {fileID: 3465952505275453952}
   - component: {fileID: 2720708859901552727}
   m_Layer: 6
   m_Name: Player
@@ -349,24 +348,6 @@ MonoBehaviour:
   _hpText: {fileID: 5373633574917617585}
   _uiPanel: {fileID: 648053486376607721}
   _billboardObject: {fileID: 648053486376607721}
---- !u!114 &3465952505275453952
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 362549746377435639}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7a2058acf7ef4309b7fcd0482391b350, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  ShowTopMostFoldoutHeaderGroup: 1
-  _damage: 10
-  _attackRange: 10
-  _attackKey: 323
-  _playerNetwork: {fileID: 498675072277332079}
-  _playerCamera: {fileID: 0}
 --- !u!114 &2720708859901552727
 MonoBehaviour:
   m_ObjectHideFlags: 0
