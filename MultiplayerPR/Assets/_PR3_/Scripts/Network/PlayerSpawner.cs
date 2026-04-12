@@ -27,7 +27,7 @@ namespace Multi.FishNet
         {
             _networkManager = FindObjectOfType<NetworkManager>();
             
-            if (_networkManager != null)
+            if (_networkManager != null && IsServer)
             {
                 _networkManager.ServerManager.OnRemoteConnectionState += OnRemoteConnectionState;
             }

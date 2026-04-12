@@ -3,13 +3,13 @@ using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using UnityEngine;
 using System.Collections;
-using Multi.PR1.FishNet;  
+using Multi.PR1.FishNet;
 
 namespace Multi.FishNet
 {
     public class PlayerNetwork : NetworkBehaviour
     {
-        // Используем SyncVar<T> без атрибутов
+        // SyncVar поля
         public readonly SyncVar<string> Nickname = new SyncVar<string>();
         public readonly SyncVar<int> Health = new SyncVar<int>(100);
         public readonly SyncVar<int> Score = new SyncVar<int>();
@@ -54,7 +54,7 @@ namespace Multi.FishNet
             _playerCombat = GetComponent<PlayerCombat>();
             _playerInput = GetComponent<PlayerInputHandler>();
             
-            // Подписка на изменения SyncVar (правильная сигнатура для v4)
+            // Подписка на изменения SyncVar
             Nickname.OnChange += OnNicknameChanged;
             Health.OnChange += OnHealthChanged;
             Score.OnChange += OnScoreChanged;
@@ -94,7 +94,7 @@ namespace Multi.FishNet
                 _originalColor = PlayerColor.Value;
             }
             
-            // Инициализация UI начальными значениями
+            // Инициализация UI
             OnNicknameChangedUI?.Invoke(Nickname.Value);
             OnHealthChangedUI?.Invoke(Health.Value);
             OnScoreChangedUI?.Invoke(Score.Value);
@@ -103,7 +103,6 @@ namespace Multi.FishNet
             OnAmmoChangedUI?.Invoke(Ammo.Value);
         }
         
-        // SyncVar хуки - правильная сигнатура для FishNet v4
         private void OnNicknameChanged(string oldValue, string newValue, bool asServer)
         {
             OnNicknameChangedUI?.Invoke(newValue);
@@ -154,11 +153,6 @@ namespace Multi.FishNet
         private void OnAmmoChanged(int oldValue, int newValue, bool asServer)
         {
             OnAmmoChangedUI?.Invoke(newValue);
-            
-            if (IsOwner && newValue > oldValue)
-            {
-                Debug.Log($"Ammo increased: {oldValue} -> {newValue}");
-            }
         }
         
         private void SetDeadColor()
@@ -236,7 +230,7 @@ namespace Multi.FishNet
             
             _respawnCoroutine = null;
             
-            Debug.Log($"[Server] Player {Owner.ClientId} respawned at {transform.position}");
+            Debug.Log($"[Server] Player {Owner.ClientId} respawned");
         }
         
         [ServerRpc(RequireOwnership = false)]
@@ -273,8 +267,6 @@ namespace Multi.FishNet
                 bulletScript.OwnerId = Owner.ClientId;
             
             base.Spawn(bullet);
-            
-            Debug.Log($"[Server] Player {Owner.ClientId} shot. Ammo left: {Ammo.Value}");
         }
         
         public void TakeDamage(int damage, int shooterId)
@@ -283,8 +275,6 @@ namespace Multi.FishNet
             if (!IsAlive.Value) return;
             
             Health.Value = Mathf.Max(0, Health.Value - damage);
-            
-            Debug.Log($"[Server] Player {Owner.ClientId} took {damage} damage, HP: {Health.Value}");
             
             if (Health.Value <= 0 && shooterId != Owner.ClientId)
             {
@@ -296,7 +286,6 @@ namespace Multi.FishNet
                         if (shooter != null && shooter != this)
                         {
                             Score.Value++;
-                            Debug.Log($"[Server] Player {shooterId} scored! Total: {Score.Value}");
                         }
                         break;
                     }
@@ -310,7 +299,6 @@ namespace Multi.FishNet
             if (!IsAlive.Value) return;
             
             Health.Value = Mathf.Min(100, Health.Value + amount);
-            Debug.Log($"[Server] Player {Owner.ClientId} healed by {amount}. New HP: {Health.Value}");
         }
         
         public void AddAmmo(int amount)
@@ -319,7 +307,6 @@ namespace Multi.FishNet
             if (!IsAlive.Value) return;
             
             Ammo.Value = Mathf.Min(10, Ammo.Value + amount);
-            Debug.Log($"[Server] Player {Owner.ClientId} got {amount} ammo. New ammo: {Ammo.Value}");
         }
         
         [ServerRpc(RequireOwnership = false)]

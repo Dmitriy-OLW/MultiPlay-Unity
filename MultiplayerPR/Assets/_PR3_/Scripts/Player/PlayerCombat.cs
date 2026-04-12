@@ -67,7 +67,6 @@ namespace Multi.FishNet
                     }
                     
                     DealDamageServer(targetPlayer, _damage);
-                    Debug.Log($"Атакован игрок {targetPlayer.Owner.ClientId}");
                 }
             }
         }
@@ -79,7 +78,6 @@ namespace Multi.FishNet
                 return;
             
             targetPlayer.TakeDamage(damage, Owner.ClientId);
-            Debug.Log($"[Server] Игрок {Owner.ClientId} нанёс {damage} урона игроку {targetPlayer.Owner.ClientId}");
         }
     }
 }
