@@ -18,16 +18,19 @@ namespace Multi.PR1
                 _playerMovement = GetComponent<PlayerMovement>();
         }
 
+        // В методе Update добавьте проверку:
         private void Update()
         {
             if (!IsOwner) return;
             if (!_playerMovement.IsCursorLocked()) return;
-
-            if (Input.GetKeyDown(KeyCode.C))
+            
+            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+    
+            if (Input.GetKeyDown(KeyCode.O))
             {
                 _playerNetwork.RequestRandomColorServerRpc();
             }
-            
+    
             if (Input.GetMouseButtonDown(0))
             {
                 Vector3 shootDirection =

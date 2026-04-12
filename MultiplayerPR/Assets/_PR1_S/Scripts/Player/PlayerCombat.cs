@@ -18,10 +18,13 @@ namespace Multi.PR1
                 _playerNetwork = GetComponent<PlayerNetwork>();
         }
 
+        // В методе Update добавьте проверку:
         private void Update()
         {
             if (!IsOwner) return;
-
+            
+            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+    
             if (_playerCamera == null)
                 _playerCamera = Camera.main;
 

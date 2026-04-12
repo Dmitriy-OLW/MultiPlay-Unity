@@ -27,23 +27,29 @@ namespace Multi.PR1
         private float _dashTimer;
         private float _dashCooldownTimer;
         private Vector3 _dashDirection;
+        
+        private PlayerNetwork _playerNetwork;
 
         private void Start()
         {
+            _playerNetwork = GetComponent<PlayerNetwork>();
+    
             if (IsOwner)
             {
                 _mainCamera = Camera.main;
-
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
-
-                _yaw = _transform.eulerAngles.y;
+                _yaw = transform.eulerAngles.y;
                 _currentCameraDistance = NormalCameraDistance;
             }
         }
 
         private void Update()
         {
+            if (!IsOwner) return;
+            
+            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+    
             HandleCursorLock();
             HandleCameraInput();
             HandleMovement();
