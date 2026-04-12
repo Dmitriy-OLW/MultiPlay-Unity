@@ -1,7 +1,5 @@
 ﻿using FishNet.Object;
 using UnityEngine;
-using FishNet.Connection;
-using FishNet.Managing.Timing;
 
 namespace Multi.FishNet
 {
@@ -19,7 +17,9 @@ namespace Multi.FishNet
         [SerializeField] private float _aimCameraDistance = 2f;
         [SerializeField] private Vector2 _pitchMinMax = new Vector2(-40, 85);
 
-        private Transform _transform;
+        [Header("Components")]
+        [SerializeField] private CharacterController _characterController;
+        
         private Camera _mainCamera;
         private float _yaw;
         private float _pitch;
@@ -35,17 +35,17 @@ namespace Multi.FishNet
         private bool _isDashingInput;
         
         // Client prediction
-        private Vector3 _predictedPosition;
-        private Vector3 _lastSentPosition;
+        private Vector3 _targetPosition;
+        private Quaternion _targetRotation;
         private float _lastSendTime;
-        [SerializeField] private float _sendInterval = 0.05f; // 20 Hz
+        [SerializeField] private float _sendInterval = 0.05f;
         
         private PlayerNetwork _playerNetwork;
 
         private void Awake()
         {
-            _transform = transform;
-            _predictedPosition = _transform.position;
+            if (_characterController == null)
+                _characterController = GetComponent<CharacterController>();
         }
 
         public override void OnStartClient()
@@ -59,12 +59,15 @@ namespace Multi.FishNet
                 Cursor.visible = false;
                 _yaw = transform.eulerAngles.y;
                 _currentCameraDistance = _normalCameraDistance;
+                _targetPosition = transform.position;
+                _targetRotation = transform.rotation;
             }
         }
 
         private void Update()
         {
             if (!IsOwner) return;
+            
             if (_playerNetwork == null)
                 _playerNetwork = GetComponent<PlayerNetwork>();
             
@@ -73,6 +76,13 @@ namespace Multi.FishNet
             HandleCursorLock();
             HandleCameraInput();
             HandleMovementInput();
+        }
+
+        private void FixedUpdate()
+        {
+            if (!IsOwner) return;
+            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+            
             ApplyMovement();
             SendToServer();
         }
@@ -82,7 +92,19 @@ namespace Multi.FishNet
             if (!IsOwner || _mainCamera == null) return;
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
             
-            Vector3 targetCenter = _transform.position + Vector3.up * 1.5f;
+            UpdateCamera();
+            
+            // Интерполяция для других игроков
+            if (!IsOwner)
+            {
+                transform.position = Vector3.Lerp(transform.position, _targetPosition, Time.deltaTime * 15f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, _targetRotation, Time.deltaTime * 15f);
+            }
+        }
+
+        private void UpdateCamera()
+        {
+            Vector3 targetCenter = transform.position + Vector3.up * 1.5f;
             Quaternion camRotation = Quaternion.Euler(_pitch, _yaw, 0);
             
             bool isAiming = Input.GetMouseButton(1) && Cursor.lockState == CursorLockMode.Locked;
@@ -141,7 +163,7 @@ namespace Multi.FishNet
                 camForward.Normalize();
                 camRight.Normalize();
                 
-                _moveDirection = camForward * inputDir.z + camRight * inputDir.x;
+                _moveDirection = (camForward * inputDir.z + camRight * inputDir.x).normalized;
             }
             
             _isDashingInput = Input.GetKeyDown(KeyCode.LeftShift) && 
@@ -154,9 +176,9 @@ namespace Multi.FishNet
         {
             // Обновляем таймеры
             if (_dashCooldownTimer > 0)
-                _dashCooldownTimer -= Time.deltaTime;
+                _dashCooldownTimer -= Time.fixedDeltaTime;
             if (_dashTimer > 0)
-                _dashTimer -= Time.deltaTime;
+                _dashTimer -= Time.fixedDeltaTime;
             
             // Обработка дэша
             float currentSpeed = _moveSpeed;
@@ -172,22 +194,28 @@ namespace Multi.FishNet
             
             if (_dashTimer > 0)
             {
-                movement = _dashDirection * _dashSpeed * Time.deltaTime;
+                movement = _dashDirection * _dashSpeed * Time.fixedDeltaTime;
             }
             else
             {
-                movement = _moveDirection * currentSpeed * Time.deltaTime;
+                movement = _moveDirection * currentSpeed * Time.fixedDeltaTime;
             }
             
-            // Предсказанное движение (клиент сразу двигается)
-            _predictedPosition += movement;
-            _transform.position = _predictedPosition;
+            // Движение с CharacterController (с коллизиями)
+            if (_characterController != null)
+            {
+                _characterController.Move(movement);
+            }
+            else
+            {
+                transform.position += movement;
+            }
             
             // Поворот персонажа
             if (_moveDirection != Vector3.zero && _dashTimer <= 0)
             {
                 Quaternion targetRotation = Quaternion.LookRotation(_moveDirection);
-                _transform.rotation = Quaternion.Slerp(_transform.rotation, targetRotation, Time.deltaTime * 10f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.fixedDeltaTime * 10f);
             }
         }
 
@@ -196,48 +224,35 @@ namespace Multi.FishNet
             if (Time.time - _lastSendTime >= _sendInterval)
             {
                 _lastSendTime = Time.time;
-                _lastSentPosition = _predictedPosition;
-                SendMovementToServer(_predictedPosition, _transform.rotation);
+                SendMovementToServer(transform.position, transform.rotation);
             }
         }
 
         [ServerRpc]
         private void SendMovementToServer(Vector3 position, Quaternion rotation)
         {
-            // Сервер проверяет и корректирует
-            _transform.position = position;
-            _transform.rotation = rotation;
+            // Серверное подтверждение позиции
+            transform.position = position;
+            transform.rotation = rotation;
             
-            // Отправляем подтверждённую позицию обратно всем
+            // Рассылаем всем клиентам (включая владельца для сверки)
             ConfirmMovementObservers(position, rotation);
         }
 
         [ObserversRpc]
         private void ConfirmMovementObservers(Vector3 position, Quaternion rotation)
         {
-            if (IsOwner)
+            if (!IsOwner)
             {
-                // Владелец: проверяем расхождение
-                float error = Vector3.Distance(_predictedPosition, position);
-                if (error > 0.5f) // Если расхождение больше 0.5 метра
-                {
-                    // Корректируем предсказанную позицию
-                    _predictedPosition = position;
-                    _transform.position = position;
-                    Debug.Log($"Reconcile: error={error}");
-                }
-            }
-            else
-            {
-                // Другие игроки: просто обновляем позицию
-                _transform.position = position;
-                _transform.rotation = rotation;
+                // Другие игроки: интерполируем
+                _targetPosition = position;
+                _targetRotation = rotation;
             }
         }
 
         public Vector3 GetCameraForward()
         {
-            return _mainCamera != null ? _mainCamera.transform.forward : _transform.forward;
+            return _mainCamera != null ? _mainCamera.transform.forward : transform.forward;
         }
 
         public bool IsCursorLocked()

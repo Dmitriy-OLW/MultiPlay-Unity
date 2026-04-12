@@ -65,19 +65,21 @@ namespace Multi.FishNet
             if (netObj != null && _networkManager != null)
             {
                 _networkManager.ServerManager.Spawn(netObj, conn);
+                Debug.Log($"[Server] Spawned player for connection {conn.ClientId} at {spawnPoint.position}");
             }
             else
             {
                 Debug.LogError("Cannot spawn player - NetworkManager or NetworkObject is null!");
             }
-            
-            Debug.Log($"[Server] Spawned player for connection {conn.ClientId}");
         }
         
         public Transform GetSpawnPoint()
         {
             if (_spawnPoints == null || _spawnPoints.Length == 0)
+            {
+                Debug.LogWarning("No spawn points assigned, using default position");
                 return transform;
+            }
             
             return _spawnPoints[Random.Range(0, _spawnPoints.Length)];
         }

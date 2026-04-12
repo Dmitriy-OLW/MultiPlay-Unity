@@ -36,6 +36,7 @@ namespace Multi.FishNet
         private PlayerMovement _playerMovement;
         private PlayerCombat _playerCombat;
         private PlayerInputHandler _playerInput;
+        private CharacterController _characterController;
         
         // События для UI
         public System.Action<string> OnNicknameChangedUI;
@@ -53,6 +54,7 @@ namespace Multi.FishNet
             _playerMovement = GetComponent<PlayerMovement>();
             _playerCombat = GetComponent<PlayerCombat>();
             _playerInput = GetComponent<PlayerInputHandler>();
+            _characterController = GetComponent<CharacterController>();
             
             // Подписка на изменения SyncVar
             Nickname.OnChange += OnNicknameChanged;
@@ -103,6 +105,13 @@ namespace Multi.FishNet
             OnAmmoChangedUI?.Invoke(Ammo.Value);
         }
         
+        public override void OnStartServer()
+        {
+            base.OnStartServer();
+            // Гарантируем, что игрок заспавнится в правильной позиции
+            TeleportToRandomSpawnPoint();
+        }
+        
         private void OnNicknameChanged(string oldValue, string newValue, bool asServer)
         {
             OnNicknameChangedUI?.Invoke(newValue);
@@ -142,7 +151,6 @@ namespace Multi.FishNet
             if (newValue)
             {
                 SetNormalColor();
-                TeleportToSpawnPoint();
             }
             else
             {
@@ -165,24 +173,45 @@ namespace Multi.FishNet
             if (_material != null) _material.color = _originalColor;
         }
         
-        [ObserversRpc]
-        private void TeleportToSpawnPoint()
+        [ServerRpc(RequireOwnership = false)]
+        private void TeleportToServer(Vector3 position, Quaternion rotation)
         {
-            if (!IsOwner) return;
-            
-            Transform spawnPoint = null;
-            
-            if (PlayerSpawner.Instance != null)
-                spawnPoint = PlayerSpawner.Instance.GetSpawnPoint();
-            
-            if (spawnPoint == null && _spawnPoints != null && _spawnPoints.Length > 0)
-                spawnPoint = _spawnPoints[Random.Range(0, _spawnPoints.Length)];
-            
+            transform.position = position;
+            transform.rotation = rotation;
+            TeleportObservers(position, rotation);
+        }
+        
+        [ObserversRpc]
+        private void TeleportObservers(Vector3 position, Quaternion rotation)
+        {
+            if (IsOwner || IsServer) return;
+            transform.position = position;
+            transform.rotation = rotation;
+        }
+        
+        private void TeleportToRandomSpawnPoint()
+        {
+            Transform spawnPoint = GetRandomSpawnPoint();
             if (spawnPoint != null)
             {
-                transform.position = spawnPoint.position;
-                transform.rotation = spawnPoint.rotation;
+                if (IsServer)
+                {
+                    transform.position = spawnPoint.position;
+                    transform.rotation = spawnPoint.rotation;
+                }
+                TeleportToServer(spawnPoint.position, spawnPoint.rotation);
             }
+        }
+        
+        private Transform GetRandomSpawnPoint()
+        {
+            if (PlayerSpawner.Instance != null)
+                return PlayerSpawner.Instance.GetSpawnPoint();
+            
+            if (_spawnPoints != null && _spawnPoints.Length > 0)
+                return _spawnPoints[Random.Range(0, _spawnPoints.Length)];
+            
+            return null;
         }
         
         private void UpdateComponentsState(bool alive)
@@ -190,6 +219,7 @@ namespace Multi.FishNet
             if (_playerMovement != null) _playerMovement.enabled = alive;
             if (_playerCombat != null) _playerCombat.enabled = alive;
             if (_playerInput != null) _playerInput.enabled = alive;
+            if (_characterController != null) _characterController.enabled = alive;
         }
         
         private void Die()
@@ -209,20 +239,20 @@ namespace Multi.FishNet
         {
             yield return new WaitForSeconds(_respawnDelay);
             
-            Transform spawnPoint = null;
-            
-            if (PlayerSpawner.Instance != null)
-                spawnPoint = PlayerSpawner.Instance.GetSpawnPoint();
-            
-            if (spawnPoint == null && _spawnPoints != null && _spawnPoints.Length > 0)
-                spawnPoint = _spawnPoints[Random.Range(0, _spawnPoints.Length)];
+            // Получаем случайную точку спавна
+            Transform spawnPoint = GetRandomSpawnPoint();
             
             if (spawnPoint != null)
             {
+                // Телепортируем на сервере
                 transform.position = spawnPoint.position;
                 transform.rotation = spawnPoint.rotation;
+                
+                // Рассылаем всем клиентам
+                TeleportObservers(spawnPoint.position, spawnPoint.rotation);
             }
             
+            // Сброс состояния
             Health.Value = 100;
             Ammo.Value = 10;
             IsAlive.Value = true;
@@ -230,7 +260,7 @@ namespace Multi.FishNet
             
             _respawnCoroutine = null;
             
-            Debug.Log($"[Server] Player {Owner.ClientId} respawned");
+            Debug.Log($"[Server] Player {Owner.ClientId} respawned at {transform.position}");
         }
         
         [ServerRpc(RequireOwnership = false)]
