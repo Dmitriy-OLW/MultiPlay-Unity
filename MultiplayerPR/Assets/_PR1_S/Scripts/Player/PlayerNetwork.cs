@@ -55,18 +55,22 @@ namespace Multi.PR1
         [SerializeField] private Transform[] _spawnPoints; 
         
         private Renderer _renderer;
-        private MaterialPropertyBlock _propBlock;
         private Coroutine _respawnCoroutine;
         private PlayerMovement _playerMovement;
         private PlayerCombat _playerCombat;
         private PlayerInputHandler _playerInput;
         private float _lastShootTime;
         private Color _originalColor;
+        private Material _material;
 
         private void Awake()
         {
             _renderer = GetComponent<Renderer>();
-            _propBlock = new MaterialPropertyBlock();
+            
+            if (_renderer != null)
+            {
+                _material = _renderer.material;
+            }
             
             _playerMovement = GetComponent<PlayerMovement>();
             _playerCombat = GetComponent<PlayerCombat>();
@@ -85,11 +89,9 @@ namespace Multi.PR1
             IsAlive.OnValueChanged += OnIsAliveChanged;
             Ammo.OnValueChanged += OnAmmoChanged;
             
-            if (_renderer != null)
+            if (_material != null)
             {
-                _renderer.GetPropertyBlock(_propBlock);
-                _propBlock.SetColor("_Color", PlayerColor.Value);
-                _renderer.SetPropertyBlock(_propBlock);
+                _material.color = PlayerColor.Value;
                 _originalColor = PlayerColor.Value;
             }
             
@@ -147,11 +149,9 @@ namespace Multi.PR1
 
         private void OnColorChanged(Color oldValue, Color newValue)
         {
-            if (_renderer != null && IsAlive.Value)
+            if (_material != null && IsAlive.Value)
             {
-                _renderer.GetPropertyBlock(_propBlock);
-                _propBlock.SetColor("_Color", newValue);
-                _renderer.SetPropertyBlock(_propBlock);
+                _material.color = newValue;
                 _originalColor = newValue;
             }
         }
@@ -159,22 +159,18 @@ namespace Multi.PR1
         [ClientRpc]
         private void SetDeadColorClientRpc()
         {
-            if (_renderer != null)
+            if (_material != null)
             {
-                _renderer.GetPropertyBlock(_propBlock);
-                _propBlock.SetColor("_Color", _deadColor);
-                _renderer.SetPropertyBlock(_propBlock);
+                _material.color = _deadColor;
             }
         }
         
         [ClientRpc]
         private void SetNormalColorClientRpc()
         {
-            if (_renderer != null)
+            if (_material != null)
             {
-                _renderer.GetPropertyBlock(_propBlock);
-                _propBlock.SetColor("_Color", _originalColor);
-                _renderer.SetPropertyBlock(_propBlock);
+                _material.color = _originalColor;
             }
         }
         
