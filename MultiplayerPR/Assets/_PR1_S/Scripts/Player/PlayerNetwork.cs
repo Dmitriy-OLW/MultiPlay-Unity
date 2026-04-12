@@ -49,6 +49,7 @@ namespace Multi.PR1
         
         [Header("Respawn")]
         [SerializeField] private float _respawnDelay = 3f;
+        [SerializeField] private Color _deadColor = Color.red;
         
         [Header("References")]
         [SerializeField] private Transform[] _spawnPoints; 
@@ -60,6 +61,7 @@ namespace Multi.PR1
         private PlayerCombat _playerCombat;
         private PlayerInputHandler _playerInput;
         private float _lastShootTime;
+        private Color _originalColor;
 
         private void Awake()
         {
@@ -88,9 +90,15 @@ namespace Multi.PR1
                 _renderer.GetPropertyBlock(_propBlock);
                 _propBlock.SetColor("_Color", PlayerColor.Value);
                 _renderer.SetPropertyBlock(_propBlock);
+                _originalColor = PlayerColor.Value;
             }
             
             UpdateComponentsState(IsAlive.Value);
+            
+            if (!IsAlive.Value && IsServer)
+            {
+                SetDeadColorClientRpc();
+            }
         }
 
         public override void OnNetworkDespawn()
@@ -117,6 +125,16 @@ namespace Multi.PR1
         private void OnIsAliveChanged(bool oldValue, bool newValue)
         {
             UpdateComponentsState(newValue);
+            
+            if (newValue)
+            {
+                SetNormalColorClientRpc();
+                TeleportToSpawnPointClientRpc();
+            }
+            else
+            {
+                SetDeadColorClientRpc();
+            }
         }
         
         private void OnAmmoChanged(int oldValue, int newValue)
@@ -129,11 +147,60 @@ namespace Multi.PR1
 
         private void OnColorChanged(Color oldValue, Color newValue)
         {
-            if (_renderer != null)
+            if (_renderer != null && IsAlive.Value)
             {
                 _renderer.GetPropertyBlock(_propBlock);
                 _propBlock.SetColor("_Color", newValue);
                 _renderer.SetPropertyBlock(_propBlock);
+                _originalColor = newValue;
+            }
+        }
+
+        [ClientRpc]
+        private void SetDeadColorClientRpc()
+        {
+            if (_renderer != null)
+            {
+                _renderer.GetPropertyBlock(_propBlock);
+                _propBlock.SetColor("_Color", _deadColor);
+                _renderer.SetPropertyBlock(_propBlock);
+            }
+        }
+        
+        [ClientRpc]
+        private void SetNormalColorClientRpc()
+        {
+            if (_renderer != null)
+            {
+                _renderer.GetPropertyBlock(_propBlock);
+                _propBlock.SetColor("_Color", _originalColor);
+                _renderer.SetPropertyBlock(_propBlock);
+            }
+        }
+        
+        [ClientRpc]
+        private void TeleportToSpawnPointClientRpc()
+        {
+            if (IsOwner)
+            {
+                Transform spawnPoint = null;
+                
+                if (PlayerSpawner.Instance != null)
+                {
+                    spawnPoint = PlayerSpawner.Instance.GetSpawnPoint();
+                }
+                
+                if (spawnPoint == null && _spawnPoints != null && _spawnPoints.Length > 0)
+                {
+                    int idx = Random.Range(0, _spawnPoints.Length);
+                    spawnPoint = _spawnPoints[idx];
+                }
+                
+                if (spawnPoint != null)
+                {
+                    transform.position = spawnPoint.position;
+                    transform.rotation = spawnPoint.rotation;
+                }
             }
         }
 
@@ -202,6 +269,7 @@ namespace Multi.PR1
             Nickname.Value = safeValue;
 
             PlayerColor.Value = new Color(Random.value, Random.value, Random.value);
+            _originalColor = PlayerColor.Value;
         }
 
         [ServerRpc]
@@ -241,15 +309,18 @@ namespace Multi.PR1
             
             Debug.Log($"[Server] Player {OwnerClientId} took {damage} damage, HP: {Health.Value}");
 
-            if (Health.Value <= 0 && IsAlive.Value)
+            if (Health.Value <= 0)
             {
                 if (NetworkManager.Singleton.ConnectedClients.TryGetValue(shooterId, out var shooterClient))
                 {
-                    var shooter = shooterClient.PlayerObject.GetComponent<PlayerNetwork>();
-                    if (shooter != null && shooter != this)
+                    if (shooterClient.PlayerObject != null)
                     {
-                        shooter.Score.Value += 1;
-                        Debug.Log($"[Server] Player {shooterId} scored! Total: {shooter.Score.Value}");
+                        PlayerNetwork shooter = shooterClient.PlayerObject.GetComponent<PlayerNetwork>();
+                        if (shooter != null && shooter != this)
+                        {
+                            shooter.Score.Value += 1;
+                            Debug.Log($"[Server] Player {shooterId} scored! Total: {shooter.Score.Value}");
+                        }
                     }
                 }
             }
