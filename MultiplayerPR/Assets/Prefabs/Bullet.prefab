@@ -17,7 +17,7 @@ GameObject:
   - component: {fileID: 7908817535721045918}
   - component: {fileID: 6356946784918254250}
   m_Layer: 0
-  m_Name: Charge
+  m_Name: Bullet
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -190,7 +190,7 @@ MonoBehaviour:
   _teleportThreshold: 1
   <PrefabId>k__BackingField: 8
   <SpawnableCollectionId>k__BackingField: 0
-  <AssetPathHash>k__BackingField: 12094958474958584525
+  <AssetPathHash>k__BackingField: 4086663663084549645
   SceneId: 0
   SerializedTransformProperties:
     Position: {x: -13.366902, y: 0.99960566, z: -18.848845}
@@ -227,5 +227,5 @@ MonoBehaviour:
   _componentIndexCache: 255
   _addedNetworkObject: {fileID: 3048220190236627927}
   _networkObjectCache: {fileID: 0}
-  _speed: 18
-  _damage: 20
+  _speed: 15
+  _damage: 25

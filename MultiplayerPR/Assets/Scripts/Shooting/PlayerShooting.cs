@@ -6,7 +6,6 @@ public class PlayerShooting : NetworkBehaviour
     [SerializeField] private GameObject _projectilePrefab;
     [SerializeField] private Transform _firePoint;
     [SerializeField] private float _cooldown = 0.4f;
-    //[SerializeField] private int _maxAmmo = 0;
 
     private float _lastShotTime;
     private PlayerNetwork _playerNetwork;
@@ -22,7 +21,7 @@ public class PlayerShooting : NetworkBehaviour
     private void Update()
     {
         if (!base.IsOwner) return;
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.Mouse0))
         {
             Shoot();
         }

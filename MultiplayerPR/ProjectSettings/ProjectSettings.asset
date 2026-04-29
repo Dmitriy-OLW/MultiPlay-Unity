@@ -923,11 +923,11 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 2
   windowsGamepadBackendHint: 0
-  cloudProjectId: 9c28f218-72f3-4111-aca7-5cc834c9d836
+  cloudProjectId: fb228948-bf44-4a45-8f3e-82dfeaab2f93
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: Unity Multyplayer practice 1
-  organizationId: fufik1976
+  projectName: MultiplayerPR
+  organizationId: dragon_333
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}

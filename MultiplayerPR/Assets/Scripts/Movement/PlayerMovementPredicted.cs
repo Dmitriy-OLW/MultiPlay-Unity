@@ -18,6 +18,7 @@ public struct PlayerMoveData : IReplicateData
 public struct PlayerReconcileData : IReconcileData
 {
     public Vector3 Position;
+    public Quaternion Rotation;
     public float VerticalVelocity;
 
     private uint _tick;
@@ -56,7 +57,6 @@ public class PlayerMovementPredicted : NetworkBehaviour
 
     private void OnTick()
     {
-        // Проверка на жизнь
         if (_playerNetwork != null && !_playerNetwork.IsAlive.Value)
             return;
 
@@ -76,6 +76,7 @@ public class PlayerMovementPredicted : NetworkBehaviour
         PlayerReconcileData rd = new PlayerReconcileData
         {
             Position = transform.position,
+            Rotation = transform.rotation,
             VerticalVelocity = _verticalVelocity
         };
         Reconcile(rd);
@@ -105,9 +106,9 @@ public class PlayerMovementPredicted : NetworkBehaviour
         }
 
         transform.position = rd.Position;
+        transform.rotation = rd.Rotation;  
         _verticalVelocity = rd.VerticalVelocity;
-
-        // Сброс CharacterController для предотвращения рывков
+        
         _cc.enabled = false;
         _cc.enabled = true;
     }

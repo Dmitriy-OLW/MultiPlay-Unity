@@ -29,6 +29,13 @@ public class ConnectionUI : MonoBehaviour
 
         HideMenu();
     }
+    
+    public void StartAsServer()
+    {
+        InstanceFinder.ServerManager.StartConnection();
+
+        HideMenu();
+    }
 
     private void SaveNickname()
     {
