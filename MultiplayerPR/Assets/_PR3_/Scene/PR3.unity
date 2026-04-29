@@ -2963,6 +2963,7 @@ GameObject:
   - component: {fileID: 1738041984}
   - component: {fileID: 1738041983}
   - component: {fileID: 1738041985}
+  - component: {fileID: 1738041986}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -3040,6 +3041,25 @@ MonoBehaviour:
   _nicknameInput: {fileID: 2097669054}
   _menuPanel: {fileID: 12628934}
   _networkManager: {fileID: 1738041984}
+--- !u!114 &1738041986
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1738041976}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3fdaae44044276a49a52229c1597e33b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _updateOrder: 1
+  _timingType: 0
+  _allowTickDropping: 1
+  _maximumFrameTicks: 1
+  _tickRate: 60
+  _pingInterval: 1
+  _physicsMode: 1
 --- !u!1 &1740326561
 GameObject:
   m_ObjectHideFlags: 0
