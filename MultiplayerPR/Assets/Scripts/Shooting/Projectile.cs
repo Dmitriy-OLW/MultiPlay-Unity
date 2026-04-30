@@ -14,25 +14,33 @@ public class Projectile : NetworkBehaviour
     private void OnTriggerEnter(Collider other)
     {
         if (!base.IsServerInitialized) return;
-
-        var target = other.GetComponentInParent<PlayerNetwork>();
-        if (target == null) return;
-        if (target.OwnerId == base.OwnerId) return;
-        if (!target.IsAlive.Value) return;
-
-        int newHp = Mathf.Max(0, target.HP.Value - _damage);
-        target.HP.Value = newHp;
         
-        if (newHp <= 0)
+        var target = other.GetComponentInParent<PlayerNetwork>();
+        if (target != null)
         {
-            PlayerNetwork shooter = GetShooter();
-            if (shooter != null)
-            {
-                shooter.AddScore(1);
-            }
-        }
+            if (target.OwnerId == base.OwnerId) return;
+            if (!target.IsAlive.Value) return;
 
-        base.Despawn(gameObject);
+            int newHp = Mathf.Max(0, target.HP.Value - _damage);
+            target.HP.Value = newHp;
+
+            if (newHp <= 0)
+            {
+                PlayerNetwork shooter = GetShooter();
+                if (shooter != null)
+                {
+                    shooter.AddScore(1);
+                }
+            }
+
+            base.Despawn(gameObject);
+            return;
+        }
+        
+        if (!other.isTrigger) 
+        {
+            base.Despawn(gameObject);
+        }
     }
 
     private PlayerNetwork GetShooter()

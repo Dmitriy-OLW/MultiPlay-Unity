@@ -22,6 +22,9 @@ public class PlayerNetwork : NetworkBehaviour
         {
             StartCoroutine(SendNicknameAfterSpawn());
         }
+        
+        CharacterController cc = GetComponent<CharacterController>();
+        if (cc) cc.enabled = true;
     }
 
     private IEnumerator SendNicknameAfterSpawn()
@@ -57,7 +60,6 @@ public class PlayerNetwork : NetworkBehaviour
 
     private void OnRespawnTimeChanged(float oldValue, float newValue, bool asServer)
     {
-        // UI handled in PlayerView
     }
 
     private void HidePlayer()
@@ -67,8 +69,8 @@ public class PlayerNetwork : NetworkBehaviour
         Collider col = GetComponent<Collider>();
         if (col) col.enabled = false;
 
-        CharacterController cc = GetComponent<CharacterController>();
-        if (cc) cc.enabled = false;
+        //CharacterController cc = GetComponent<CharacterController>();
+        //if (cc) cc.enabled = false;
     }
 
     private void ShowPlayer()
@@ -78,8 +80,8 @@ public class PlayerNetwork : NetworkBehaviour
         Collider col = GetComponent<Collider>();
         if (col) col.enabled = true;
 
-        CharacterController cc = GetComponent<CharacterController>();
-        if (cc) cc.enabled = true;
+        //CharacterController cc = GetComponent<CharacterController>();
+        //if (cc) cc.enabled = true;
     }
 
     [ServerRpc(RequireOwnership = false)]
@@ -107,8 +109,7 @@ public class PlayerNetwork : NetworkBehaviour
         }
 
         RespawnTime.Value = 0f;
-
-        // Перемещаем игрока через PlayerSpawner
+        
         Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
         Vector3 newPosition = spawnPoint != null ? spawnPoint.position : Vector3.zero;
 

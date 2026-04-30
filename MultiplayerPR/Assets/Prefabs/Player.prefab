@@ -201,6 +201,9 @@ MonoBehaviour:
   - {fileID: 614098134512072803}
   - {fileID: 6396138790541119635}
   - {fileID: 4099325735101399399}
+  - {fileID: 7559678668796300698}
+  - {fileID: 3472915189743884243}
+  - {fileID: 1462970006018456074}
   InitializedParentNetworkBehaviour: {fileID: 0}
   InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
@@ -211,7 +214,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584245644551949299
+  _initializedTimestamp: -8584240982118332996
   _localLevelOfDetailCalculationType: 0
   _useLevelOfDetail: 0
   _useRootLevelOfDetail: 1
@@ -230,7 +233,7 @@ MonoBehaviour:
   _spectatorInterpolation: 2
   _enableTeleport: 0
   _teleportThreshold: 1
-  <PrefabId>k__BackingField: 1
+  <PrefabId>k__BackingField: 0
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 2092870565765373345
   SceneId: 0
@@ -251,10 +254,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a2836e36774ca1c4bbbee976e17b649c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 255
+  _componentIndexCache: 0
   _addedNetworkObject: {fileID: 739356960530429475}
-  _networkObjectCache: {fileID: 0}
-  _componentConfiguration: 1
+  _networkObjectCache: {fileID: 739356960530429475}
+  _componentConfiguration: 0
   _synchronizeParent: 0
   _packing:
     Position: 2
@@ -352,9 +355,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: de19fe96343fc32478784787621861ba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 255
+  _componentIndexCache: 4
   _addedNetworkObject: {fileID: 739356960530429475}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 739356960530429475}
   _offset: {x: 0, y: 2, z: -3}
   _cameraView: {fileID: 18344120726041024}
   _mouseSensitivity: 2
@@ -372,9 +375,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5469e695079c7149a123e1abafd4fba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 255
+  _componentIndexCache: 5
   _addedNetworkObject: {fileID: 739356960530429475}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 739356960530429475}
   _projectilePrefab: {fileID: 8964339914333604397, guid: 7e7c574c7a7579e4e818f7cf4cfcf1fc, type: 3}
   _firePoint: {fileID: 1553486375684494116}
   _cooldown: 0.4
@@ -390,11 +393,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 20823ed43f075224582332ec64441b88, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _componentIndexCache: 255
+  _componentIndexCache: 6
   _addedNetworkObject: {fileID: 739356960530429475}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 739356960530429475}
   _speed: 5
   _gravity: -9.81
+  _mouseSensitivity: 20
 --- !u!1 &1439056845843019035
 GameObject:
   m_ObjectHideFlags: 0

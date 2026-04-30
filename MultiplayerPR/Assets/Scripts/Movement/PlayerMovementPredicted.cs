@@ -7,6 +7,7 @@ public struct PlayerMoveData : IReplicateData
 {
     public float Horizontal;
     public float Vertical;
+    public float MouseX;
 
     private uint _tick;
 
@@ -33,10 +34,12 @@ public class PlayerMovementPredicted : NetworkBehaviour
 {
     [SerializeField] private float _speed = 5f;
     [SerializeField] private float _gravity = -9.81f;
+    [SerializeField] private float _mouseSensitivity = 2f;
 
     private CharacterController _cc;
     private float _verticalVelocity;
     private PlayerNetwork _playerNetwork;
+    private float _horizontalRotation = 0f;
 
     private void Awake()
     {
@@ -47,12 +50,24 @@ public class PlayerMovementPredicted : NetworkBehaviour
     public override void OnStartNetwork()
     {
         base.TimeManager.OnTick += OnTick;
+        
+        if (base.Owner.IsLocalClient)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     public override void OnStopNetwork()
     {
         if (base.TimeManager != null)
             base.TimeManager.OnTick -= OnTick;
+            
+        if (base.Owner.IsLocalClient)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 
     private void OnTick()
@@ -65,7 +80,8 @@ public class PlayerMovementPredicted : NetworkBehaviour
             PlayerMoveData moveData = new PlayerMoveData
             {
                 Horizontal = Input.GetAxisRaw("Horizontal"),
-                Vertical = Input.GetAxisRaw("Vertical")
+                Vertical = Input.GetAxisRaw("Vertical"),
+                MouseX = Input.GetAxis("Mouse X") * _mouseSensitivity
             };
             Replicate(moveData);
         }
@@ -85,7 +101,10 @@ public class PlayerMovementPredicted : NetworkBehaviour
     [Replicate]
     private void Replicate(PlayerMoveData md, ReplicateState state = ReplicateState.Invalid, Channel channel = Channel.Unreliable)
     {
-        Vector3 move = new Vector3(md.Horizontal, 0f, md.Vertical).normalized;
+        _horizontalRotation += md.MouseX;
+        transform.rotation = Quaternion.Euler(0f, _horizontalRotation, 0f);
+        
+        Vector3 move = (transform.right * md.Horizontal + transform.forward * md.Vertical).normalized;
         move *= _speed;
 
         _verticalVelocity += _gravity * (float)base.TimeManager.TickDelta;
@@ -100,15 +119,10 @@ public class PlayerMovementPredicted : NetworkBehaviour
     [Reconcile]
     private void Reconcile(PlayerReconcileData rd, Channel channel = Channel.Unreliable)
     {
-        if (base.IsOwner)
-        {
-            Debug.Log($"Reconcile: position={rd.Position}, my position={transform.position}");
-        }
-
         transform.position = rd.Position;
-        transform.rotation = rd.Rotation;  
+        transform.rotation = rd.Rotation;
         _verticalVelocity = rd.VerticalVelocity;
-        
+
         _cc.enabled = false;
         _cc.enabled = true;
     }

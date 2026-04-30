@@ -28,9 +28,9 @@ public class AmmoPickup : NetworkBehaviour
         var player = other.GetComponentInParent<PlayerNetwork>();
         if (player == null) return;
         if (!player.IsAlive.Value) return;
-        if (player.Ammo.Value >= 20) return;
+        if (player.Ammo.Value >= 10) return;
 
-        player.Ammo.Value = Mathf.Min(20, player.Ammo.Value + _ammoAmount);
+        player.Ammo.Value = Mathf.Min(10, player.Ammo.Value + _ammoAmount);
 
         Debug.Log($"[Server] Player {player.OwnerId} picked up ammo pack");
 
