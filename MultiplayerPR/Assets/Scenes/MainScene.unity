@@ -454,7 +454,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: New Text
+  m_text: 
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -484,7 +484,7 @@ MonoBehaviour:
   m_fontSize: 36
   m_fontSizeBase: 36
   m_fontWeight: 400
-  m_enableAutoSizing: 0
+  m_enableAutoSizing: 1
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
@@ -520,7 +520,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: -25.802895, y: 0, z: -26.500252, w: 0}
+  m_margin: {x: -68.41422, y: 0, z: -8.066658, w: 104.45679}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -542,7 +542,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &72057833
 RectTransform:
   m_ObjectHideFlags: 0
@@ -796,7 +796,7 @@ MonoBehaviour:
   m_fontSize: 36
   m_fontSizeBase: 36
   m_fontWeight: 400
-  m_enableAutoSizing: 0
+  m_enableAutoSizing: 1
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 0
@@ -860,9 +860,9 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 72057833}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 76.95, y: -73.85}
   m_SizeDelta: {x: 153.9, y: 147.7}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &276187314
@@ -2189,7 +2189,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -42, y: 30.9}
+  m_AnchoredPosition: {x: 5, y: -131}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &828878784
@@ -2513,7 +2513,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1085883964
 RectTransform:
   m_ObjectHideFlags: 0
@@ -4679,7 +4679,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _nicknameInput: {fileID: 1575350143}
   _serverAddressInput: {fileID: 449844750}
-  _menuPanel: {fileID: 2034420140}
+  _menuPanel: {fileID: 2125743365}
 --- !u!114 &2034420142
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4782,6 +4782,7 @@ MonoBehaviour:
   _playerResultPrefab: {fileID: 2581762217033195617, guid: 97ac6a5c955a4914297e73ccb938bd5c, type: 3}
   _lobbyPlayersCountText: {fileID: 64185776}
   _matchTimerText: {fileID: 213014071}
+  _gameManager: {fileID: 946362831}
 --- !u!1 &2046859340
 GameObject:
   m_ObjectHideFlags: 0

@@ -15,25 +15,66 @@ public class UIManager : MonoBehaviour
     [SerializeField] private TMP_Text _lobbyPlayersCountText;
     [SerializeField] private TMP_Text _matchTimerText;
 
-    private GameManager _gameManager;
+    [Header("References")]
+    [SerializeField] private GameManager _gameManager; // Прямая ссылка через инспектор
 
     private void Start()
     {
-        _gameManager = FindObjectOfType<GameManager>();
+        // Если ссылка не установлена в инспекторе, пробуем найти
         if (_gameManager == null)
         {
-            Debug.LogError("GameManager not found!");
+            _gameManager = FindObjectOfType<GameManager>();
+        }
+
+        if (_gameManager == null)
+        {
+            Debug.LogError("GameManager not found! Please assign it in the inspector.");
             return;
         }
+
         // Начальное состояние
         UpdateUIForState(_gameManager.CurrentState.Value);
+        
+        // Подписываемся на изменение состояния
+        _gameManager.CurrentState.OnChange += OnGameStateChanged;
+    }
+
+    private void OnDestroy()
+    {
+        if (_gameManager != null)
+        {
+            _gameManager.CurrentState.OnChange -= OnGameStateChanged;
+        }
+    }
+
+    private void OnGameStateChanged(GameManager.GameState oldValue, GameManager.GameState newValue, bool asServer)
+    {
+        if (asServer) return;
+        UpdateUIForState(newValue);
     }
 
     public void UpdateUIForState(GameManager.GameState state)
     {
-        if (_lobbyPanel) _lobbyPanel.SetActive(state == GameManager.GameState.WaitingForPlayers);
-        if (_inGameHUDPanel) _inGameHUDPanel.SetActive(state == GameManager.GameState.InProgress);
-        if (_resultsPanel) _resultsPanel.SetActive(state == GameManager.GameState.ShowingResults);
+        Debug.Log($"UIManager: Updating UI for state: {state}");
+
+        // Сначала скрываем все панели
+        if (_lobbyPanel != null) _lobbyPanel.SetActive(false);
+        if (_inGameHUDPanel != null) _inGameHUDPanel.SetActive(false);
+        if (_resultsPanel != null) _resultsPanel.SetActive(false);
+
+        // Показываем нужную панель
+        switch (state)
+        {
+            case GameManager.GameState.WaitingForPlayers:
+                if (_lobbyPanel != null) _lobbyPanel.SetActive(true);
+                break;
+            case GameManager.GameState.InProgress:
+                if (_inGameHUDPanel != null) _inGameHUDPanel.SetActive(true);
+                break;
+            case GameManager.GameState.ShowingResults:
+                if (_resultsPanel != null) _resultsPanel.SetActive(true);
+                break;
+        }
     }
 
     private void Update()
@@ -41,13 +82,13 @@ public class UIManager : MonoBehaviour
         if (_gameManager == null) return;
         
         // Обновляем счетчик игроков в лобби
-        if (_lobbyPanel.activeSelf && _lobbyPlayersCountText != null)
+        if (_lobbyPanel != null && _lobbyPanel.activeSelf && _lobbyPlayersCountText != null)
         {
             _lobbyPlayersCountText.text = $"Waiting for players: {_gameManager.ConnectedPlayers.Value}/3";
         }
 
         // Обновляем таймер матча
-        if (_inGameHUDPanel.activeSelf && _matchTimerText != null)
+        if (_inGameHUDPanel != null && _inGameHUDPanel.activeSelf && _matchTimerText != null)
         {
             int seconds = Mathf.CeilToInt(_gameManager.MatchTimer.Value);
             _matchTimerText.text = $"Time left: {seconds}s";
@@ -56,26 +97,41 @@ public class UIManager : MonoBehaviour
 
     public void ShowResultsPanel(List<GameManager.PlayerResult> results)
     {
-        if (_resultsPanel == null) return;
+        Debug.Log("UIManager: Showing results panel");
         
+        if (_resultsPanel == null)
+        {
+            Debug.LogError("Results panel is not assigned!");
+            return;
+        }
+        
+        // Скрываем другие панели
+        if (_lobbyPanel != null) _lobbyPanel.SetActive(false);
+        if (_inGameHUDPanel != null) _inGameHUDPanel.SetActive(false);
+        
+        // Показываем панель результатов
         _resultsPanel.SetActive(true);
-        if (_lobbyPanel) _lobbyPanel.SetActive(false);
-        if (_inGameHUDPanel) _inGameHUDPanel.SetActive(false);
 
         // Очищаем старые результаты
-        foreach (Transform child in _resultsContainer)
+        if (_resultsContainer != null)
         {
-            Destroy(child.gameObject);
-        }
-
-        // Заполняем таблицу новыми результатами
-        for (int i = 0; i < results.Count; i++)
-        {
-            GameObject resultEntry = Instantiate(_playerResultPrefab, _resultsContainer);
-            TMP_Text textComponent = resultEntry.GetComponent<TMP_Text>();
-            if (textComponent != null)
+            foreach (Transform child in _resultsContainer)
             {
-                textComponent.text = $"{i + 1}. {results[i].Nickname} — Score: {results[i].Score}";
+                Destroy(child.gameObject);
+            }
+
+            // Заполняем таблицу новыми результатами
+            if (_playerResultPrefab != null)
+            {
+                for (int i = 0; i < results.Count; i++)
+                {
+                    GameObject resultEntry = Instantiate(_playerResultPrefab, _resultsContainer);
+                    TMP_Text textComponent = resultEntry.GetComponent<TMP_Text>();
+                    if (textComponent != null)
+                    {
+                        textComponent.text = $"{i + 1}. {results[i].Nickname} — Score: {results[i].Score}";
+                    }
+                }
             }
         }
     }
