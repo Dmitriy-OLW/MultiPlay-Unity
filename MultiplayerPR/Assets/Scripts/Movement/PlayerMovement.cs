@@ -20,6 +20,9 @@ public class PlayerMovement : NetworkBehaviour
         if (!GetComponent<PlayerNetwork>().IsAlive.Value) return;
 
         if (!base.Owner.IsLocalClient) return;
+        
+        GameManager gm = FindObjectOfType<GameManager>();
+        if (gm == null || gm.CurrentState.Value != GameManager.GameState.InProgress) return;
 
         float h = Input.GetAxis("Horizontal");
         float v = Input.GetAxis("Vertical");

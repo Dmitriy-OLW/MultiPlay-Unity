@@ -30,6 +30,16 @@ public class PlayerShooting : NetworkBehaviour
     [ServerRpc]
     private void Shoot()
     {
+        GameManager gm = FindObjectOfType<GameManager>();
+        if (gm == null || gm.CurrentState.Value != GameManager.GameState.InProgress) 
+        {
+            Debug.Log("Cannot shoot outside of match!");
+            return;
+        }
+    
+        if (!_playerNetwork.IsAlive.Value) return;
+        if (_playerNetwork.Ammo.Value <= 0) return;
+        if (Time.time < _lastShotTime + _cooldown) return;
         if (!_playerNetwork.IsAlive.Value) return;
         if (_playerNetwork.Ammo.Value <= 0) return;
         if (Time.time < _lastShotTime + _cooldown) return;
