@@ -10,7 +10,7 @@ public class GameManager : NetworkBehaviour
 {
     [SerializeField] private int _requiredPlayers = 3;
     [SerializeField] private float _matchDuration = 60f;
-    [SerializeField] private float _resultsScreenDuration = 10f;
+    [SerializeField] private float _resultsScreenDuration = 5f; // 5 секунд после результатов
 
     public readonly SyncVar<GameState> CurrentState = new SyncVar<GameState>(GameState.WaitingForPlayers);
     public readonly SyncVar<int> ConnectedPlayers = new SyncVar<int>(0);
@@ -30,22 +30,19 @@ public class GameManager : NetworkBehaviour
             base.ServerManager.OnRemoteConnectionState += OnPlayerConnectionChanged;
             base.TimeManager.OnTick += OnServerTick;
             
-            // Регистрируем обработчик изменения состояния
             CurrentState.OnChange += OnGameStateChanged;
             
-            Debug.Log("[Server] GameManager started and listening for players.");
+            Debug.Log("[Server] GameManager started. Required players: " + _requiredPlayers);
         }
     }
 
     public override void OnStopNetwork()
     {
-        // Убираем проверку на null для SyncVar - они никогда не null в FishNet v4+
         if (base.ServerManager != null)
             base.ServerManager.OnRemoteConnectionState -= OnPlayerConnectionChanged;
         if (base.TimeManager != null)
             base.TimeManager.OnTick -= OnServerTick;
             
-        // Отписываемся от события изменения CurrentState
         CurrentState.OnChange -= OnGameStateChanged;
     }
 
@@ -53,19 +50,12 @@ public class GameManager : NetworkBehaviour
     {
         if (!base.IsServerInitialized) return;
 
-        // Пересчитываем игроков при каждом подключении/отключении
         ConnectedPlayers.Value = base.ServerManager.Clients.Count;
         Debug.Log($"[Server] Players connected: {ConnectedPlayers.Value}/{_requiredPlayers}");
 
-        // Проверяем условие старта
         if (CurrentState.Value == GameState.WaitingForPlayers && ConnectedPlayers.Value >= _requiredPlayers)
         {
             StartMatch();
-        }
-        // Если игрок отключился во время матча и игроков стало меньше нужного
-        else if (CurrentState.Value == GameState.InProgress && ConnectedPlayers.Value < _requiredPlayers)
-        {
-            EndMatch();
         }
     }
 
@@ -88,7 +78,6 @@ public class GameManager : NetworkBehaviour
 
         Debug.Log("[Server] Match started!");
         
-        // Сбрасываем очки и здоровье всех игроков перед новым матчем
         foreach (var conn in base.ServerManager.Clients.Values)
         {
             foreach (var nob in conn.Objects)
@@ -99,6 +88,7 @@ public class GameManager : NetworkBehaviour
                     pn.HP.Value = 100;
                     pn.Score.Value = 0;
                     pn.Ammo.Value = 10;
+                    pn.IsAlive.Value = true;
                 }
             }
         }
@@ -112,32 +102,33 @@ public class GameManager : NetworkBehaviour
     {
         if (!base.IsServerInitialized) return;
         Debug.Log("[Server] Match ended! Showing results...");
+        
         CurrentState.Value = GameState.ShowingResults;
         
-        // Отправляем всем клиентам результаты матча
         RpcShowResults(GetMatchResults());
         
-        // Запускаем таймер для возврата в лобби
-        StartCoroutine(ResetToLobbyCoroutine());
+        StartCoroutine(ResetAfterDelay());
     }
 
     [Server]
-    private System.Collections.IEnumerator ResetToLobbyCoroutine()
+    private IEnumerator ResetAfterDelay()
     {
+        // Ждём 5 секунд
         yield return new WaitForSeconds(_resultsScreenDuration);
-        ResetToLobby();
-    }
-
-    [Server]
-    private void ResetToLobby()
-    {
-        Debug.Log("[Server] Returning to lobby...");
+        
+        // Возвращаемся в лобби
         CurrentState.Value = GameState.WaitingForPlayers;
         ConnectedPlayers.Value = base.ServerManager.Clients.Count;
+        
         Debug.Log($"[Server] Lobby reset. Players: {ConnectedPlayers.Value}/{_requiredPlayers}");
+        
+        // Если есть 3 игрока, сразу стартуем новый матч
+        if (ConnectedPlayers.Value >= _requiredPlayers)
+        {
+            StartMatch();
+        }
     }
 
-    // Структура для хранения результатов одного игрока
     public struct PlayerResult
     {
         public string Nickname;
@@ -163,11 +154,9 @@ public class GameManager : NetworkBehaviour
                 }
             }
         }
-        // Сортировка по очкам (по убыванию)
         return results.OrderByDescending(r => r.Score).ToList();
     }
 
-    // Клиентский RPC для отображения результатов
     [ObserversRpc]
     private void RpcShowResults(List<PlayerResult> results)
     {
@@ -176,18 +165,12 @@ public class GameManager : NetworkBehaviour
         {
             uiManager.ShowResultsPanel(results);
         }
-        else
-        {
-            Debug.LogError("UIManager not found!");
-        }
     }
 
-    // Обработчик изменения состояния игры на клиенте
     private void OnGameStateChanged(GameState oldValue, GameState newValue, bool asServer)
     {
         if (asServer) return;
 
-        Debug.Log($"Game state changed: {oldValue} -> {newValue}");
         UIManager uiManager = FindObjectOfType<UIManager>();
         if (uiManager != null)
         {
