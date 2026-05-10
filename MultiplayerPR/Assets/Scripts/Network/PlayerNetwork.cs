@@ -125,7 +125,7 @@ public class PlayerNetwork : NetworkBehaviour
     }
 
     [ObserversRpc(BufferLast = true)]
-    private void TeleportPlayerObservers(Vector3 spawnPosition)
+    public  void TeleportPlayerObservers(Vector3 spawnPosition)
     {
         if (!base.IsServerInitialized)
         {

@@ -34,18 +34,20 @@ public class GameManager : NetworkBehaviour
             CurrentState.OnChange += OnGameStateChanged;
             
             Debug.Log("[Server] GameManager started and listening for players.");
+            
+            // Инициализируем счетчик игроков и проверяем запуск матча
+            ConnectedPlayers.Value = base.ServerManager.Clients.Count;
+            CheckAndStartMatchIfReady();
         }
     }
 
     public override void OnStopNetwork()
     {
-        // Убираем проверку на null для SyncVar - они никогда не null в FishNet v4+
         if (base.ServerManager != null)
             base.ServerManager.OnRemoteConnectionState -= OnPlayerConnectionChanged;
         if (base.TimeManager != null)
             base.TimeManager.OnTick -= OnServerTick;
             
-        // Отписываемся от события изменения CurrentState
         CurrentState.OnChange -= OnGameStateChanged;
     }
 
@@ -57,15 +59,38 @@ public class GameManager : NetworkBehaviour
         ConnectedPlayers.Value = base.ServerManager.Clients.Count;
         Debug.Log($"[Server] Players connected: {ConnectedPlayers.Value}/{_requiredPlayers}");
 
-        // Проверяем условие старта
-        if (CurrentState.Value == GameState.WaitingForPlayers && ConnectedPlayers.Value >= _requiredPlayers)
+        // Если мы в лобби, проверяем возможность старта
+        if (CurrentState.Value == GameState.WaitingForPlayers)
         {
-            StartMatch();
+            CheckAndStartMatchIfReady();
         }
         // Если игрок отключился во время матча и игроков стало меньше нужного
         else if (CurrentState.Value == GameState.InProgress && ConnectedPlayers.Value < _requiredPlayers)
         {
             EndMatch();
+        }
+    }
+    
+    [Server]
+    private void CheckAndStartMatchIfReady()
+    {
+        // Если в лобби достаточно игроков, запускаем матч
+        if (CurrentState.Value == GameState.WaitingForPlayers && ConnectedPlayers.Value >= _requiredPlayers)
+        {
+            // Небольшая задержка перед стартом, чтобы игроки успели полностью загрузиться
+            StartCoroutine(StartMatchDelayed());
+        }
+    }
+    
+    [Server]
+    private IEnumerator StartMatchDelayed()
+    {
+        yield return new WaitForSeconds(1f);
+        
+        // Повторно проверяем условие перед стартом (за секунду могло что-то измениться)
+        if (CurrentState.Value == GameState.WaitingForPlayers && ConnectedPlayers.Value >= _requiredPlayers)
+        {
+            StartMatch();
         }
     }
 
@@ -82,13 +107,15 @@ public class GameManager : NetworkBehaviour
         }
     }
 
+    [Server]
     private void StartMatch()
     {
         if (!base.IsServerInitialized) return;
+        if (CurrentState.Value != GameState.WaitingForPlayers) return;
 
         Debug.Log("[Server] Match started!");
         
-        // Сбрасываем очки и здоровье всех игроков перед новым матчем
+        // Сбрасываем очки, здоровье и боезапас всех игроков перед новым матчем
         foreach (var conn in base.ServerManager.Clients.Values)
         {
             foreach (var nob in conn.Objects)
@@ -96,9 +123,26 @@ public class GameManager : NetworkBehaviour
                 PlayerNetwork pn = nob.GetComponent<PlayerNetwork>();
                 if (pn != null)
                 {
-                    pn.HP.Value = 100;
+                    // Если игрок мертв, воскрешаем его
+                    if (!pn.IsAlive.Value)
+                    {
+                        pn.HP.Value = 100;
+                        pn.IsAlive.Value = true;
+                    }
+                    else
+                    {
+                        pn.HP.Value = 100;
+                    }
                     pn.Score.Value = 0;
                     pn.Ammo.Value = 10;
+                    
+                    // Телепортируем на спавн-точку
+                    Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
+                    if (spawnPoint != null)
+                    {
+                        pn.TeleportPlayerObservers(spawnPoint.position);
+                        pn.transform.position = spawnPoint.position;
+                    }
                 }
             }
         }
@@ -111,6 +155,8 @@ public class GameManager : NetworkBehaviour
     private void EndMatch()
     {
         if (!base.IsServerInitialized) return;
+        if (CurrentState.Value != GameState.InProgress) return;
+        
         Debug.Log("[Server] Match ended! Showing results...");
         CurrentState.Value = GameState.ShowingResults;
         
@@ -122,7 +168,7 @@ public class GameManager : NetworkBehaviour
     }
 
     [Server]
-    private System.Collections.IEnumerator ResetToLobbyCoroutine()
+    private IEnumerator ResetToLobbyCoroutine()
     {
         yield return new WaitForSeconds(_resultsScreenDuration);
         ResetToLobby();
@@ -132,9 +178,33 @@ public class GameManager : NetworkBehaviour
     private void ResetToLobby()
     {
         Debug.Log("[Server] Returning to lobby...");
+        
+        // Сбрасываем состояние игроков для лобби (делаем их видимыми и живыми)
+        foreach (var conn in base.ServerManager.Clients.Values)
+        {
+            foreach (var nob in conn.Objects)
+            {
+                PlayerNetwork pn = nob.GetComponent<PlayerNetwork>();
+                if (pn != null)
+                {
+                    if (!pn.IsAlive.Value)
+                    {
+                        pn.HP.Value = 100;
+                        pn.IsAlive.Value = true;
+                    }
+                    pn.Score.Value = 0;
+                    pn.Ammo.Value = 10;
+                }
+            }
+        }
+        
         CurrentState.Value = GameState.WaitingForPlayers;
         ConnectedPlayers.Value = base.ServerManager.Clients.Count;
+        
         Debug.Log($"[Server] Lobby reset. Players: {ConnectedPlayers.Value}/{_requiredPlayers}");
+        
+        // Проверяем, не достаточно ли уже игроков для нового матча
+        CheckAndStartMatchIfReady();
     }
 
     // Структура для хранения результатов одного игрока
