@@ -109,12 +109,15 @@ public class PlayerNetwork : NetworkBehaviour
         }
 
         RespawnTime.Value = 0f;
-    
+        
         Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
         Vector3 newPosition = spawnPoint != null ? spawnPoint.position : Vector3.zero;
 
-        // Используем новый метод телепортации
-        TeleportPlayer(newPosition);
+        TeleportPlayerObservers(newPosition);
+        if (base.IsServerInitialized)
+        {
+            transform.position = newPosition;
+        }
 
         HP.Value = 100;
         IsAlive.Value = true;
@@ -127,41 +130,6 @@ public class PlayerNetwork : NetworkBehaviour
         if (!base.IsServerInitialized)
         {
             transform.position = spawnPosition;
-        }
-    }
-    
-    [Server]
-    public void TeleportPlayer(Vector3 newPosition)
-    {
-        if (!base.IsServerInitialized) return;
-    
-        Quaternion newRotation = Quaternion.identity;
-        PlayerMovementPredicted movement = GetComponent<PlayerMovementPredicted>();
-    
-        if (movement != null)
-        {
-            movement.Teleport(newPosition, newRotation, 0f);
-        }
-        else
-        {
-            // Fallback если нет предсказанного движения
-            CharacterController cc = GetComponent<CharacterController>();
-            if (cc != null) cc.enabled = false;
-            transform.position = newPosition;
-            if (cc != null) cc.enabled = true;
-            TeleportPositionObservers(newPosition);
-        }
-    }
-
-    [ObserversRpc(BufferLast = true)]
-    private void TeleportPositionObservers(Vector3 spawnPosition)
-    {
-        if (!base.IsServerInitialized)
-        {
-            CharacterController cc = GetComponent<CharacterController>();
-            if (cc != null) cc.enabled = false;
-            transform.position = spawnPosition;
-            if (cc != null) cc.enabled = true;
         }
     }
 }
