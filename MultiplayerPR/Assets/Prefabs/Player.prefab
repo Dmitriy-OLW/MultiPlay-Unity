@@ -266,7 +266,7 @@ MonoBehaviour:
   _useScaledTime: 1
   _interpolation: 5
   _extrapolation: 5
-  _enableTeleport: 0
+  _enableTeleport: 1
   _teleportThreshold: 1
   _clientAuthoritative: 1
   _sendToOwner: 1
