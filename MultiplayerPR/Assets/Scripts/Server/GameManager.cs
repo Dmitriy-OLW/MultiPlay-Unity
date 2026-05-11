@@ -106,16 +106,13 @@ public class GameManager : NetworkBehaviour
             EndMatch();
         }
     }
-
+    
     [Server]
     private void StartMatch()
     {
         if (!base.IsServerInitialized) return;
         if (CurrentState.Value != GameState.WaitingForPlayers) return;
-
-        Debug.Log("[Server] Match started!");
         
-        // Сбрасываем очки, здоровье и боезапас всех игроков перед новым матчем
         foreach (var conn in base.ServerManager.Clients.Values)
         {
             foreach (var nob in conn.Objects)
@@ -123,7 +120,6 @@ public class GameManager : NetworkBehaviour
                 PlayerNetwork pn = nob.GetComponent<PlayerNetwork>();
                 if (pn != null)
                 {
-                    // Если игрок мертв, воскрешаем его
                     if (!pn.IsAlive.Value)
                     {
                         pn.HP.Value = 100;
@@ -136,12 +132,18 @@ public class GameManager : NetworkBehaviour
                     pn.Score.Value = 0;
                     pn.Ammo.Value = 10;
                     
-                    // Телепортируем на спавн-точку
                     Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
                     if (spawnPoint != null)
                     {
-                        pn.TeleportPlayerObservers(spawnPoint.position);
-                        pn.transform.position = spawnPoint.position;
+                        PlayerMovementPredicted movement = pn.GetComponent<PlayerMovementPredicted>();
+                        if (movement != null)
+                        {
+                            movement.RequestTeleportServerRpc(spawnPoint.position, Quaternion.identity);
+                        }
+                        else
+                        {
+                            pn.transform.position = spawnPoint.position;
+                        }
                     }
                 }
             }

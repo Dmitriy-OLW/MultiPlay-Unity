@@ -40,6 +40,10 @@ public class PlayerMovementPredicted : NetworkBehaviour
     private float _verticalVelocity;
     private PlayerNetwork _playerNetwork;
     private float _horizontalRotation = 0f;
+    
+    private bool _forceTeleport = false;
+    private Vector3 _targetPosition;
+    private Quaternion _targetRotation;
 
     private void Awake()
     {
@@ -85,6 +89,12 @@ public class PlayerMovementPredicted : NetworkBehaviour
             };
             Replicate(moveData);
         }
+        
+        if (_forceTeleport && base.IsOwner)
+        {
+            ApplyTeleport(_targetPosition, _targetRotation);
+            _forceTeleport = false;
+        }
     }
 
     public override void CreateReconcile()
@@ -119,11 +129,77 @@ public class PlayerMovementPredicted : NetworkBehaviour
     [Reconcile]
     private void Reconcile(PlayerReconcileData rd, Channel channel = Channel.Unreliable)
     {
-        transform.position = rd.Position;
-        transform.rotation = rd.Rotation;
+        float distance = Vector3.Distance(transform.position, rd.Position);
+        if (distance > 1f) 
+        {
+            Teleport(rd.Position, rd.Rotation);
+        }
+        else
+        {
+            transform.position = Vector3.Lerp(transform.position, rd.Position, 0.5f);
+            transform.rotation = rd.Rotation;
+        }
         _verticalVelocity = rd.VerticalVelocity;
-
+        
         _cc.enabled = false;
+        _cc.enabled = true;
+    }
+    
+    [ServerRpc(RequireOwnership = false)]
+    public void RequestTeleportServerRpc(Vector3 newPosition, Quaternion newRotation)
+    {
+        if (!base.IsServerInitialized) return;
+        
+        Teleport(newPosition, newRotation);
+        
+        TeleportObserversRpc(newPosition, newRotation);
+    }
+    
+    [ObserversRpc]
+    private void TeleportObserversRpc(Vector3 newPosition, Quaternion newRotation)
+    {
+        if (base.IsOwner)
+            return;
+            
+        Teleport(newPosition, newRotation);
+    }
+    
+    public void Teleport(Vector3 newPosition, Quaternion newRotation)
+    {
+        if (_cc == null)
+            _cc = GetComponent<CharacterController>();
+        
+        _cc.enabled = false;
+        
+        transform.position = newPosition;
+        transform.rotation = newRotation;
+        
+        _horizontalRotation = newRotation.eulerAngles.y;
+        
+        _verticalVelocity = 0f;
+        
+        _cc.enabled = true;
+        
+        if (base.IsOwner)
+        {
+            _targetPosition = newPosition;
+            _targetRotation = newRotation;
+            _forceTeleport = true;
+        }
+        
+        Debug.Log($"[Teleport] {gameObject.name} teleported to {newPosition}");
+    }
+    
+    private void ApplyTeleport(Vector3 newPosition, Quaternion newRotation)
+    {
+        if (_cc == null)
+            _cc = GetComponent<CharacterController>();
+        
+        _cc.enabled = false;
+        transform.position = newPosition;
+        transform.rotation = newRotation;
+        _horizontalRotation = newRotation.eulerAngles.y;
+        _verticalVelocity = 0f;
         _cc.enabled = true;
     }
 }

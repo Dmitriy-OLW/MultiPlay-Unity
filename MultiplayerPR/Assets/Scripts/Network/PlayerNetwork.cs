@@ -12,6 +12,13 @@ public class PlayerNetwork : NetworkBehaviour
     public readonly SyncVar<float> RespawnTime = new SyncVar<float>(0f);
     public readonly SyncVar<int> Score = new SyncVar<int>(0);
 
+    private PlayerMovementPredicted _movement;
+
+    private void Awake()
+    {
+        _movement = GetComponent<PlayerMovementPredicted>();
+    }
+
     public override void OnStartNetwork()
     {
         HP.OnChange += OnHpChanged;
@@ -64,24 +71,24 @@ public class PlayerNetwork : NetworkBehaviour
 
     private void HidePlayer()
     {
-        GetComponent<MeshRenderer>().enabled = false;
+        MeshRenderer renderer = GetComponent<MeshRenderer>();
+        if (renderer) renderer.enabled = false;
 
         Collider col = GetComponent<Collider>();
         if (col) col.enabled = false;
-
-        //CharacterController cc = GetComponent<CharacterController>();
-        //if (cc) cc.enabled = false;
+        
+        if (_movement != null) _movement.enabled = false;
     }
 
     private void ShowPlayer()
     {
-        GetComponent<MeshRenderer>().enabled = true;
+        MeshRenderer renderer = GetComponent<MeshRenderer>();
+        if (renderer) renderer.enabled = true;
 
         Collider col = GetComponent<Collider>();
         if (col) col.enabled = true;
-
-        //CharacterController cc = GetComponent<CharacterController>();
-        //if (cc) cc.enabled = true;
+        
+        if (_movement != null) _movement.enabled = true;
     }
 
     [ServerRpc(RequireOwnership = false)]
@@ -100,6 +107,8 @@ public class PlayerNetwork : NetworkBehaviour
     private IEnumerator RespawnRoutine()
     {
         float timer = 3f;
+        Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
+        Vector3 spawnPosition = spawnPoint != null ? spawnPoint.position : Vector3.zero;
 
         while (timer > 0)
         {
@@ -110,24 +119,27 @@ public class PlayerNetwork : NetworkBehaviour
 
         RespawnTime.Value = 0f;
         
-        Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
-        Vector3 newPosition = spawnPoint != null ? spawnPoint.position : Vector3.zero;
-
-        TeleportPlayerObservers(newPosition);
+        TeleportPlayer(spawnPosition);
+        
         if (base.IsServerInitialized)
         {
-            transform.position = newPosition;
+            HP.Value = 100;
+            IsAlive.Value = true;
+            Ammo.Value = 10;
         }
-
-        HP.Value = 100;
-        IsAlive.Value = true;
-        Ammo.Value = 10;
     }
-
-    [ObserversRpc(BufferLast = true)]
-    public  void TeleportPlayerObservers(Vector3 spawnPosition)
+    
+    [Server]
+    private void TeleportPlayer(Vector3 spawnPosition)
     {
-        if (!base.IsServerInitialized)
+        if (!base.IsServerInitialized) return;
+        
+        PlayerMovementPredicted movement = GetComponent<PlayerMovementPredicted>();
+        if (movement != null)
+        {
+            movement.RequestTeleportServerRpc(spawnPosition, Quaternion.identity);
+        }
+        else
         {
             transform.position = spawnPosition;
         }
