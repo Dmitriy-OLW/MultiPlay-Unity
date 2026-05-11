@@ -106,7 +106,7 @@ public class GameManager : NetworkBehaviour
             EndMatch();
         }
     }
-
+    
     [Server]
     private void StartMatch()
     {
@@ -114,7 +114,7 @@ public class GameManager : NetworkBehaviour
         if (CurrentState.Value != GameState.WaitingForPlayers) return;
 
         Debug.Log("[Server] Match started!");
-        
+    
         // Сбрасываем очки, здоровье и боезапас всех игроков перед новым матчем
         foreach (var conn in base.ServerManager.Clients.Values)
         {
@@ -135,13 +135,12 @@ public class GameManager : NetworkBehaviour
                     }
                     pn.Score.Value = 0;
                     pn.Ammo.Value = 10;
-                    
-                    // Телепортируем на спавн-точку
+                
+                    // Телепортируем на спавн-точку с использованием нового метода
                     Transform spawnPoint = PlayerSpawner.Instance?.GetRandomSpawnPoint();
                     if (spawnPoint != null)
                     {
-                        pn.TeleportPlayerObservers(spawnPoint.position);
-                        pn.transform.position = spawnPoint.position;
+                        pn.TeleportPlayer(spawnPoint.position);
                     }
                 }
             }
