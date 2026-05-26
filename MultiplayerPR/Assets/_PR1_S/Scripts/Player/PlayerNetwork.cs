@@ -43,6 +43,26 @@ namespace Multi.PR1
             NetworkVariableWritePermission.Server
         );
         
+        // NetworkVariable для синхронизации позиции
+        public NetworkVariable<Vector3> SpawnPosition = new(
+            Vector3.zero,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+        
+        public NetworkVariable<Quaternion> SpawnRotation = new(
+            Quaternion.identity,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+        
+        // NetworkVariable для синхронизации индекса скина
+        public NetworkVariable<int> SkinIndex = new(
+            -1,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server
+        );
+        
         [Header("Combat Settings")]
         [SerializeField] private GameObject _bulletPrefab;
         [SerializeField] private float _shootCooldown = 1f;
@@ -50,6 +70,10 @@ namespace Multi.PR1
         [Header("Respawn")]
         [SerializeField] private float _respawnDelay = 3f;
         [SerializeField] private Color _deadColor = Color.red;
+        
+        [Header("Skins")]
+        [SerializeField] private GameObject[] _skinObjects; // Массив объектов скинов
+        [SerializeField] private bool _disableDefaultRenderer = true; // Отключать ли стандартный рендерер
         
         [Header("References")]
         [SerializeField] private Transform[] _spawnPoints; 
@@ -59,9 +83,12 @@ namespace Multi.PR1
         private PlayerMovement _playerMovement;
         private PlayerCombat _playerCombat;
         private PlayerInputHandler _playerInput;
+        private NetworkCarController _carController;
         private float _lastShootTime;
         private Color _originalColor;
         private Material _material;
+        private bool _isPositionSynced = false;
+        private int _currentActiveSkin = -1;
 
         private void Awake()
         {
@@ -75,6 +102,7 @@ namespace Multi.PR1
             _playerMovement = GetComponent<PlayerMovement>();
             _playerCombat = GetComponent<PlayerCombat>();
             _playerInput = GetComponent<PlayerInputHandler>();
+            _carController = GetComponent<NetworkCarController>();
         }
 
         public override void OnNetworkSpawn()
@@ -88,6 +116,9 @@ namespace Multi.PR1
             Health.OnValueChanged += OnHealthChanged;
             IsAlive.OnValueChanged += OnIsAliveChanged;
             Ammo.OnValueChanged += OnAmmoChanged;
+            SpawnPosition.OnValueChanged += OnSpawnPositionChanged;
+            SpawnRotation.OnValueChanged += OnSpawnRotationChanged;
+            SkinIndex.OnValueChanged += OnSkinIndexChanged;
             
             if (_material != null)
             {
@@ -97,9 +128,162 @@ namespace Multi.PR1
             
             UpdateComponentsState(IsAlive.Value);
             
+            // Если скин уже установлен, применяем его
+            if (SkinIndex.Value >= 0 && SkinIndex.Value < _skinObjects.Length)
+            {
+                ApplySkin(SkinIndex.Value);
+            }
+            
+            // Для клиента - подписываемся на изменение позиции
+            if (!IsServer && IsAlive.Value)
+            {
+                // Если позиция уже установлена, применяем её
+                if (SpawnPosition.Value != Vector3.zero)
+                {
+                    ApplySpawnPosition(SpawnPosition.Value, SpawnRotation.Value);
+                }
+            }
+            
+            // Только для сервера - устанавливаем начальную позицию и скин
+            if (IsServer && IsAlive.Value)
+            {
+                StartCoroutine(SetInitialSpawnPointAndSkin());
+            }
+            
             if (!IsAlive.Value && IsServer)
             {
                 SetDeadColorClientRpc();
+            }
+        }
+        
+        private void OnSpawnPositionChanged(Vector3 oldValue, Vector3 newValue)
+        {
+            if (!IsServer && newValue != Vector3.zero)
+            {
+                ApplySpawnPosition(newValue, SpawnRotation.Value);
+            }
+        }
+        
+        private void OnSpawnRotationChanged(Quaternion oldValue, Quaternion newValue)
+        {
+            if (!IsServer && newValue != Quaternion.identity)
+            {
+                ApplySpawnPosition(SpawnPosition.Value, newValue);
+            }
+        }
+        
+        private void OnSkinIndexChanged(int oldValue, int newValue)
+        {
+            // При изменении индекса скина применяем его на всех клиентах
+            if (newValue >= 0 && newValue < _skinObjects.Length)
+            {
+                ApplySkin(newValue);
+                Debug.Log($"[Network] Skin changed for player {OwnerClientId} from {oldValue} to {newValue}");
+            }
+        }
+        
+        private void ApplySkin(int skinIndex)
+        {
+            // Если уже активен этот скин, ничего не делаем
+            if (_currentActiveSkin == skinIndex) return;
+            
+            // Отключаем все скины
+            for (int i = 0; i < _skinObjects.Length; i++)
+            {
+                if (_skinObjects[i] != null)
+                {
+                    _skinObjects[i].SetActive(false);
+                }
+            }
+            
+            // Включаем выбранный скин
+            if (skinIndex >= 0 && skinIndex < _skinObjects.Length && _skinObjects[skinIndex] != null)
+            {
+                _skinObjects[skinIndex].SetActive(true);
+                _currentActiveSkin = skinIndex;
+                
+                // Если нужно отключить стандартный рендерер
+                if (_disableDefaultRenderer && _renderer != null)
+                {
+                    _renderer.enabled = false;
+                }
+                
+                Debug.Log($"[Network] Applied skin {skinIndex} for player {OwnerClientId}");
+            }
+        }
+        
+        private void ApplySpawnPosition(Vector3 position, Quaternion rotation)
+        {
+            if (_isPositionSynced) return;
+            
+            transform.position = position;
+            transform.rotation = rotation;
+            
+            // Сбрасываем физику
+            Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+            
+            // Сбрасываем колёса
+            WheelCollider[] wheels = GetComponentsInChildren<WheelCollider>();
+            foreach (var wheel in wheels)
+            {
+                wheel.motorTorque = 0;
+                wheel.brakeTorque = 0;
+                wheel.steerAngle = 0;
+            }
+            
+            if (_carController != null)
+            {
+                _carController.ResetCarState();
+            }
+            
+            _isPositionSynced = true;
+            Debug.Log($"[Client] Applied spawn position: {position} for player {OwnerClientId}");
+        }
+        
+        private IEnumerator SetInitialSpawnPointAndSkin()
+        {
+            // Ждём один кадр для полной инициализации
+            yield return null;
+            
+            // Получаем точку спавна
+            Transform spawnPoint = null;
+            if (PlayerSpawner.Instance != null)
+            {
+                spawnPoint = PlayerSpawner.Instance.GetFreeSpawnPoint(OwnerClientId);
+            }
+            
+            if (spawnPoint == null && _spawnPoints != null && _spawnPoints.Length > 0)
+            {
+                spawnPoint = _spawnPoints[0];
+            }
+            
+            // Выбираем случайный скин, если он ещё не выбран
+            if (SkinIndex.Value == -1 && _skinObjects.Length > 0)
+            {
+                int randomSkinIndex = Random.Range(0, _skinObjects.Length);
+                SkinIndex.Value = randomSkinIndex;
+                Debug.Log($"[Server] Random skin {randomSkinIndex} selected for player {OwnerClientId}");
+            }
+            
+            if (spawnPoint != null)
+            {
+                // Устанавливаем позицию на сервере
+                transform.position = spawnPoint.position;
+                transform.rotation = spawnPoint.rotation;
+                
+                // Сохраняем в NetworkVariable для клиентов
+                SpawnPosition.Value = spawnPoint.position;
+                SpawnRotation.Value = spawnPoint.rotation;
+                
+                // Отправляем ClientRpc для немедленной синхронизации
+                TeleportToSpawnPointClientRpc(spawnPoint.position, spawnPoint.rotation);
+                
+                Debug.Log($"[Server] Player {OwnerClientId} initial spawn at {spawnPoint.position}");
             }
         }
 
@@ -109,6 +293,15 @@ namespace Multi.PR1
             Health.OnValueChanged -= OnHealthChanged;
             IsAlive.OnValueChanged -= OnIsAliveChanged;
             Ammo.OnValueChanged -= OnAmmoChanged;
+            SpawnPosition.OnValueChanged -= OnSpawnPositionChanged;
+            SpawnRotation.OnValueChanged -= OnSpawnRotationChanged;
+            SkinIndex.OnValueChanged -= OnSkinIndexChanged;
+            
+            // Освобождаем точку при деспавне игрока
+            if (IsServer && PlayerSpawner.Instance != null)
+            {
+                PlayerSpawner.Instance.ReleaseSpawnPoint(OwnerClientId);
+            }
             
             if (_respawnCoroutine != null)
                 StopCoroutine(_respawnCoroutine);
@@ -131,7 +324,7 @@ namespace Multi.PR1
             if (newValue)
             {
                 SetNormalColorClientRpc();
-                TeleportToSpawnPointClientRpc();
+                _isPositionSynced = false;
             }
             else
             {
@@ -175,29 +368,43 @@ namespace Multi.PR1
         }
         
         [ClientRpc]
-        private void TeleportToSpawnPointClientRpc()
+        private void TeleportToSpawnPointClientRpc(Vector3 position, Quaternion rotation)
         {
-            if (IsOwner)
+            // Принудительно применяем позицию для всех клиентов
+            transform.position = position;
+            transform.rotation = rotation;
+            
+            // Для машины - сбрасываем физику
+            Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null)
             {
-                Transform spawnPoint = null;
-                
-                if (PlayerSpawner.Instance != null)
-                {
-                    spawnPoint = PlayerSpawner.Instance.GetSpawnPoint();
-                }
-                
-                if (spawnPoint == null && _spawnPoints != null && _spawnPoints.Length > 0)
-                {
-                    int idx = Random.Range(0, _spawnPoints.Length);
-                    spawnPoint = _spawnPoints[idx];
-                }
-                
-                if (spawnPoint != null)
-                {
-                    transform.position = spawnPoint.position;
-                    transform.rotation = spawnPoint.rotation;
-                }
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
             }
+            
+            // Сбрасываем состояние коллайдеров колёс (для машины)
+            WheelCollider[] wheels = GetComponentsInChildren<WheelCollider>();
+            foreach (var wheel in wheels)
+            {
+                wheel.motorTorque = 0;
+                wheel.brakeTorque = 0;
+                wheel.steerAngle = 0;
+            }
+            
+            // Сбрасываем состояние машины
+            if (_carController != null)
+            {
+                _carController.ResetCarState();
+            }
+            
+            // Обновляем NetworkVariable для клиентов
+            if (!IsServer)
+            {
+                SpawnPosition.Value = position;
+                SpawnRotation.Value = rotation;
+            }
+            
+            Debug.Log($"[ClientRpc] Teleported {OwnerClientId} to {position}");
         }
 
         private void UpdateComponentsState(bool isAlive)
@@ -210,12 +417,21 @@ namespace Multi.PR1
             
             if (_playerInput != null)
                 _playerInput.enabled = isAlive;
+                
+            if (_carController != null)
+                _carController.enabled = isAlive;
         }
 
         private void Die()
         {
             if (!IsServer) return;
             if (!IsAlive.Value) return;
+            
+            // Освобождаем точку спавна перед смертью
+            if (PlayerSpawner.Instance != null)
+            {
+                PlayerSpawner.Instance.ReleaseSpawnPoint(OwnerClientId);
+            }
             
             IsAlive.Value = false;
             
@@ -224,34 +440,67 @@ namespace Multi.PR1
             
             _respawnCoroutine = StartCoroutine(RespawnRoutine());
         }
+        
+        private bool IsPointOccupiedByOtherPlayer(Vector3 position)
+        {
+            Collider[] colliders = Physics.OverlapSphere(position, 2f);
+            foreach (var collider in colliders)
+            {
+                PlayerNetwork otherPlayer = collider.GetComponentInParent<PlayerNetwork>();
+                if (otherPlayer != null && otherPlayer != this && otherPlayer.IsAlive.Value)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         private IEnumerator RespawnRoutine()
         {
             yield return new WaitForSeconds(_respawnDelay);
             
             Transform spawnPoint = null;
-            
             if (PlayerSpawner.Instance != null)
             {
-                spawnPoint = PlayerSpawner.Instance.GetSpawnPoint();
+                spawnPoint = PlayerSpawner.Instance.GetFreeSpawnPoint(OwnerClientId);
             }
             
+            // Если спавнер не настроен, используем локальные точки
             if (spawnPoint == null && _spawnPoints != null && _spawnPoints.Length > 0)
             {
-                int idx = Random.Range(0, _spawnPoints.Length);
-                spawnPoint = _spawnPoints[idx];
+                foreach (var point in _spawnPoints)
+                {
+                    if (!IsPointOccupiedByOtherPlayer(point.position))
+                    {
+                        spawnPoint = point;
+                        break;
+                    }
+                }
+                
+                if (spawnPoint == null)
+                    spawnPoint = _spawnPoints[0];
             }
+            
+            // При респавне НЕ меняем скин, оставляем тот же
+            // Скин остаётся таким же, как был при первом спавне
             
             if (spawnPoint != null)
             {
                 transform.position = spawnPoint.position;
                 transform.rotation = spawnPoint.rotation;
+                
+                SpawnPosition.Value = spawnPoint.position;
+                SpawnRotation.Value = spawnPoint.rotation;
+                
+                TeleportToSpawnPointClientRpc(spawnPoint.position, spawnPoint.rotation);
             }
             
+            // Сбрасываем состояние игрока
             Health.Value = 100;
             Ammo.Value = 10;
             IsAlive.Value = true;
             _lastShootTime = 0;
+            _isPositionSynced = true;
             
             _respawnCoroutine = null;
             
@@ -272,6 +521,17 @@ namespace Multi.PR1
         public void RequestRandomColorServerRpc()
         {
             PlayerColor.Value = new Color(Random.value, Random.value, Random.value);
+        }
+        
+        [ServerRpc]
+        public void RequestRandomSkinServerRpc()
+        {
+            if (_skinObjects.Length > 0)
+            {
+                int randomSkinIndex = Random.Range(0, _skinObjects.Length);
+                SkinIndex.Value = randomSkinIndex;
+                Debug.Log($"[Server] Random skin {randomSkinIndex} requested for player {OwnerClientId}");
+            }
         }
 
         [ServerRpc]
@@ -354,6 +614,12 @@ namespace Multi.PR1
                 
                 _respawnCoroutine = StartCoroutine(RespawnRoutine());
             }
+        }
+        
+        // Геттер для текущего индекса скина
+        public int GetCurrentSkinIndex()
+        {
+            return SkinIndex.Value;
         }
     }
 }

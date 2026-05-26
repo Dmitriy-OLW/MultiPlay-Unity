@@ -1,7 +1,7 @@
 ﻿using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
-using System;
+using System.Collections;
 
 namespace Multi.PR1
 {
@@ -108,6 +108,41 @@ namespace Multi.PR1
             SetupSounds();
         }
 
+        // Добавьте этот метод в NetworkCarController
+        public override void OnNetworkSpawn()
+        {
+            base.OnNetworkSpawn();
+    
+            if (!IsOwner && _playerNetwork != null)
+            {
+                StartCoroutine(WaitAndApplyPosition());
+            }
+        }
+
+        private IEnumerator WaitAndApplyPosition()
+        {
+            yield return new WaitForSeconds(0.1f);
+    
+            if (_playerNetwork != null)
+            {
+                if (_playerNetwork.SpawnPosition.Value != Vector3.zero)
+                {
+                    transform.position = _playerNetwork.SpawnPosition.Value;
+                    transform.rotation = _playerNetwork.SpawnRotation.Value;
+            
+                    // Сбрасываем физику
+                    Rigidbody rb = GetComponent<Rigidbody>();
+                    if (rb != null)
+                    {
+                        rb.linearVelocity = Vector3.zero;
+                        rb.angularVelocity = Vector3.zero;
+                    }
+            
+                    Debug.Log($"[Car] Applied position: {transform.position}, rotation: {transform.rotation.eulerAngles}");
+                }
+            }
+        }
+        
         private void SetupCarPhysics()
         {
             carRigidbody = GetComponent<Rigidbody>();
@@ -293,8 +328,9 @@ namespace Multi.PR1
         private void UpdateCamera()
         {
             if (_playerCamera == null || !IsOwner) return;
-
-            Vector3 targetPosition = transform.position + transform.forward * -5f + Vector3.up * 3f;
+    
+            // Камера следует за машиной с учетом её ротации
+            Vector3 targetPosition = transform.position - transform.forward * 5f + Vector3.up * 3f;
             _playerCamera.transform.position = Vector3.Lerp(_playerCamera.transform.position, targetPosition, Time.deltaTime * 8f);
             _playerCamera.transform.LookAt(transform.position + Vector3.up * 1.5f);
         }
@@ -549,6 +585,59 @@ namespace Multi.PR1
         public bool IsCursorLocked()
         {
             return Cursor.lockState == CursorLockMode.Locked;
+        }
+
+        // Добавленный метод для сброса состояния машины при респавне
+        public void ResetCarState()
+        {
+            // Сброс управления
+            steeringAxis = 0f;
+            throttleAxis = 0f;
+            driftingAxis = 0f;
+            deceleratingCar = false;
+            isDrifting = false;
+            isTractionLocked = false;
+            
+            // Сброс колес
+            ResetSteeringAngle();
+            
+            // Сброс физики
+            if (carRigidbody != null)
+            {
+                carRigidbody.linearVelocity = Vector3.zero;
+                carRigidbody.angularVelocity = Vector3.zero;
+            }
+            
+            // Сброс WheelColliders
+            if (frontLeftCollider != null)
+            {
+                frontLeftCollider.motorTorque = 0;
+                frontLeftCollider.brakeTorque = 0;
+                frontLeftCollider.steerAngle = 0;
+            }
+            if (frontRightCollider != null)
+            {
+                frontRightCollider.motorTorque = 0;
+                frontRightCollider.brakeTorque = 0;
+                frontRightCollider.steerAngle = 0;
+            }
+            if (rearLeftCollider != null)
+            {
+                rearLeftCollider.motorTorque = 0;
+                rearLeftCollider.brakeTorque = 0;
+                rearLeftCollider.steerAngle = 0;
+            }
+            if (rearRightCollider != null)
+            {
+                rearRightCollider.motorTorque = 0;
+                rearRightCollider.brakeTorque = 0;
+                rearRightCollider.steerAngle = 0;
+            }
+            
+            // Сброс фрикций до стандартных
+            ResetFrictionToDefault();
+            
+            Debug.Log($"[Car] Reset state for {OwnerClientId}");
         }
     }
 }
