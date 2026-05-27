@@ -1,4 +1,4 @@
-﻿using Unity.Collections;
+﻿﻿using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
 using System.Collections;
@@ -184,14 +184,10 @@ namespace Multi.PR1
 
         // ==================== CAR SYNC - CLIENTRPC METHODS ====================
         
-// ==================== CAR SYNC - CLIENTRPC METHODS ====================
-        
         [ServerRpc(RequireOwnership = true)]
         public void SendCarStateServerRpc(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, Vector3 position, Quaternion rotation, float carSpeed)
         {
             if (!IsServer) return;
-    
-            Debug.Log($"[ServerRpc] Received car state from player {OwnerClientId}: steering={steeringAngle:F1}, drifting={isDrifting}, position={position}");
     
             SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, position, rotation, carSpeed);
         }
@@ -269,6 +265,25 @@ namespace Multi.PR1
             }
         }
         
+        public void CycleSkin()
+        {
+            if (!IsOwner) return;
+    
+            int nextSkin = (SkinIndex.Value + 1) % _skinObjects.Length;
+            RequestSkinChangeServerRpc(nextSkin);
+            Debug.Log($"[PlayerNetwork] Requesting skin change from {SkinIndex.Value} to {nextSkin}");
+        }
+
+        [ServerRpc]
+        public void RequestSkinChangeServerRpc(int newSkinIndex)
+        {
+            if (newSkinIndex >= 0 && newSkinIndex < _skinObjects.Length)
+            {
+                SkinIndex.Value = newSkinIndex;
+                Debug.Log($"[PlayerNetwork] Skin changed to {newSkinIndex} for player {OwnerClientId}");
+            }
+        }
+        
         private void ApplySpawnPosition(Vector3 position, Quaternion rotation)
         {
             if (_isPositionSynced) return;
@@ -278,9 +293,6 @@ namespace Multi.PR1
             Debug.Log($"[PlayerNetwork] Applied spawn position: {position} for player {OwnerClientId}");
         }
         
-        /// <summary>
-        /// Принудительная телепортация с полным сбросом физики
-        /// </summary>
         private void ForceTeleportToPosition(Vector3 position, Quaternion rotation)
         {
             transform.position = position;
@@ -291,7 +303,6 @@ namespace Multi.PR1
             {
                 rb.linearVelocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
-                // Для kinematic rigidbody нужно также сбросить позицию через MovePosition
                 if (rb.isKinematic)
                 {
                     rb.MovePosition(position);
@@ -299,7 +310,6 @@ namespace Multi.PR1
                 }
             }
             
-            // Сброс состояния WheelCollider'ов
             WheelCollider[] wheels = GetComponentsInChildren<WheelCollider>();
             foreach (var wheel in wheels)
             {
@@ -316,16 +326,12 @@ namespace Multi.PR1
             Debug.Log($"[PlayerNetwork] Force teleported to position: {position}");
         }
         
-        /// <summary>
-        /// Проверка и принудительная синхронизация позиции с повтором
-        /// </summary>
         private IEnumerator ForceSpawnSyncCoroutine(Vector3 targetPosition, Quaternion targetRotation)
         {
             float startTime = Time.time;
             float endTime = startTime + _spawnForceDuration;
             int retryCount = 0;
             
-            // Первая немедленная телепортация
             ForceTeleportToPosition(targetPosition, targetRotation);
             yield return null;
             
@@ -336,7 +342,7 @@ namespace Multi.PR1
                 if (distance > _spawnDistanceThreshold)
                 {
                     retryCount++;
-                    Debug.LogWarning($"[PlayerNetwork] Player {OwnerClientId} is {distance:F2}m from spawn point (threshold: {_spawnDistanceThreshold}m). Force teleporting again. Retry #{retryCount}");
+                    Debug.LogWarning($"[PlayerNetwork] Player {OwnerClientId} is {distance:F2}m from spawn point. Force teleporting again. Retry #{retryCount}");
                     ForceTeleportToPosition(targetPosition, targetRotation);
                 }
                 else if (retryCount > 0)
@@ -347,7 +353,6 @@ namespace Multi.PR1
                 yield return new WaitForSeconds(0.1f);
             }
             
-            // Финальная проверка
             float finalDistance = Vector3.Distance(transform.position, targetPosition);
             if (finalDistance > _spawnDistanceThreshold)
             {
@@ -392,10 +397,8 @@ namespace Multi.PR1
                 SpawnPosition.Value = targetPosition;
                 SpawnRotation.Value = targetRotation;
                 
-                // Запускаем принудительную синхронизацию для всех клиентов
                 TeleportToSpawnPointClientRpc(targetPosition, targetRotation);
                 
-                // Запускаем корутину для принудительной синхронизации на сервере
                 if (_forceSpawnSyncCoroutine != null)
                     StopCoroutine(_forceSpawnSyncCoroutine);
                 _forceSpawnSyncCoroutine = StartCoroutine(ForceSpawnSyncCoroutine(targetPosition, targetRotation));
@@ -473,7 +476,6 @@ namespace Multi.PR1
             
             ForceTeleportToPosition(position, rotation);
             
-            // Также запускаем принудительную синхронизацию на клиенте
             if (_forceSpawnSyncCoroutine != null)
                 StopCoroutine(_forceSpawnSyncCoroutine);
             _forceSpawnSyncCoroutine = StartCoroutine(ForceSpawnSyncCoroutine(position, rotation));
@@ -565,7 +567,6 @@ namespace Multi.PR1
                 
                 TeleportToSpawnPointClientRpc(targetPosition, targetRotation);
                 
-                // Запускаем принудительную синхронизацию
                 if (_forceSpawnSyncCoroutine != null)
                     StopCoroutine(_forceSpawnSyncCoroutine);
                 _forceSpawnSyncCoroutine = StartCoroutine(ForceSpawnSyncCoroutine(targetPosition, targetRotation));

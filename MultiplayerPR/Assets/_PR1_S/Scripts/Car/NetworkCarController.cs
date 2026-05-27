@@ -1,4 +1,4 @@
-﻿using Unity.Netcode;
+﻿﻿using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 using System;
@@ -64,6 +64,20 @@ namespace Multi.PR1
 
         [Header("Camera")]
         [SerializeField] private CarCameraController _cameraController;
+        
+        [Header("Collision Damage")]
+        [SerializeField] private float _damageMultiplier = 0.1f;
+        [SerializeField] private float _minDamageSpeed = 10f;
+        [SerializeField] private float _maxDamageSpeed = 100f;
+        [SerializeField] private int _maxDamage = 50;
+        
+        [Header("Respawn")]
+        [SerializeField] private KeyCode _respawnKey = KeyCode.R;
+        [SerializeField] private float _respawnCooldown = 3f;
+        [SerializeField] private float _respawnHeightOffset = 3f;
+        
+        [Header("Collision")]
+        [SerializeField] private float _collisionCooldown = 0.5f;
 
         [HideInInspector]
         public float carSpeed;
@@ -83,6 +97,9 @@ namespace Multi.PR1
         private float _lastShootTime;
         private float _startupTimer = 0f;
         private bool _isInterpolationEnabled = false;
+        
+        private float _lastCollisionTime;
+        private float _lastRespawnTime;
 
         private WheelFrictionCurve FLwheelFriction;
         private float FLWextremumSlip;
@@ -93,7 +110,6 @@ namespace Multi.PR1
         private WheelFrictionCurve RRwheelFriction;
         private float RRWextremumSlip;
         
-        // Синхронизированные значения для не-владельцев
         private float _syncedSteeringAngle;
         private float _syncedWheelRPM;
         private bool _syncedIsDrifting;
@@ -103,10 +119,7 @@ namespace Multi.PR1
         private Quaternion _syncedRotation;
         private float _syncedCarSpeed;
         
-        // Для накопления вращения колёс (spin) на не-владельцах
         private float _wheelSpinX = 0f;
-        
-        // Для хранения текущих углов поворота колёс (steering) на не-владельцах
         private float _currentSteerAngle = 0f;
         
         private float _lastSyncTime;
@@ -229,12 +242,83 @@ namespace Multi.PR1
 
             HandleCarInput();
             HandleShooting();
+            HandleRespawn();
             
             if (Time.time - _lastSyncTime > _syncRate)
             {
                 SendCarStateToServer();
                 _lastSyncTime = Time.time;
             }
+        }
+        
+        private void HandleRespawn()
+        {
+            if (Input.GetKeyDown(_respawnKey))
+            {
+                if (Time.time - _lastRespawnTime >= _respawnCooldown)
+                {
+                    _lastRespawnTime = Time.time;
+                    RespawnCar();
+                }
+            }
+        }
+        
+        private void RespawnCar()
+        {
+            if (carRigidbody == null) return;
+            
+            // Сброс позиции - поднимаем на 3 метра вверх
+            Vector3 respawnPosition = transform.position;
+            respawnPosition.y += _respawnHeightOffset;
+            
+            // Сброс углов до нуля
+            Quaternion respawnRotation = Quaternion.identity;
+            
+            // Применяем телепортацию
+            transform.position = respawnPosition;
+            transform.rotation = respawnRotation;
+            
+            // Сброс физики
+            carRigidbody.linearVelocity = Vector3.zero;
+            carRigidbody.angularVelocity = Vector3.zero;
+            
+            // Сброс состояния колёс
+            if (frontLeftCollider != null)
+            {
+                frontLeftCollider.motorTorque = 0;
+                frontLeftCollider.brakeTorque = 0;
+                frontLeftCollider.steerAngle = 0;
+            }
+            if (frontRightCollider != null)
+            {
+                frontRightCollider.motorTorque = 0;
+                frontRightCollider.brakeTorque = 0;
+                frontRightCollider.steerAngle = 0;
+            }
+            if (rearLeftCollider != null)
+            {
+                rearLeftCollider.motorTorque = 0;
+                rearLeftCollider.brakeTorque = 0;
+                rearLeftCollider.steerAngle = 0;
+            }
+            if (rearRightCollider != null)
+            {
+                rearRightCollider.motorTorque = 0;
+                rearRightCollider.brakeTorque = 0;
+                rearRightCollider.steerAngle = 0;
+            }
+            
+            // Сброс управляющих переменных
+            steeringAxis = 0f;
+            throttleAxis = 0f;
+            driftingAxis = 0f;
+            isDrifting = false;
+            isTractionLocked = false;
+            
+            // Сброс трения
+            ResetFrictionToDefault();
+            
+            Debug.Log($"[CarController] Car respawned at {respawnPosition}");
         }
         
         private void ApplyPositionInterpolation()
@@ -414,14 +498,48 @@ namespace Multi.PR1
             AnimateWheelMeshes();
         }
         
-        // ==================== СИНХРОНИЗАЦИЯ КОЛЁС ====================
+        // ==================== COLLISION DAMAGE ====================
+        
+        private void OnCollisionEnter(Collision collision)
+        {
+            if (!IsServer) return;
+            if (_playerNetwork == null) return;
+            if (!_playerNetwork.IsAlive.Value) return;
+            
+            // Проверяем кулдаун столкновения
+            if (Time.time - _lastCollisionTime < _collisionCooldown) return;
+            
+            // Получаем скорость столкновения
+            float collisionSpeed = collision.relativeVelocity.magnitude;
+            
+            // Скорость в км/ч для наглядности
+            float speedKmh = collisionSpeed * 3.6f;
+            
+            if (speedKmh >= _minDamageSpeed)
+            {
+                _lastCollisionTime = Time.time;
+                
+                // Расчёт урона: линейная зависимость от скорости
+                // При 10 км/ч -> 1 урон, при 100 км/ч -> 10 урон (максимум)
+                float damagePercent = Mathf.Clamp01((speedKmh - _minDamageSpeed) / (_maxDamageSpeed - _minDamageSpeed));
+                int damage = Mathf.RoundToInt(damagePercent * _maxDamage);
+                
+                // Минимум 1 урон, если превысили порог
+                damage = Mathf.Max(1, damage);
+                
+                Debug.Log($"[CarController] Collision! Speed: {speedKmh:F1} km/h, Damage: {damage}");
+                
+                // Наносим урон от столкновения (урон самому себе)
+                _playerNetwork.TakeDamage(damage, OwnerClientId);
+            }
+        }
+        
+        // ==================== SYNC WHEELS ====================
         
         private void ApplySyncedVisuals()
         {
-            // 1. Плавное обновление угла поворота колёс (steering) для передних колёс
             _currentSteerAngle = Mathf.Lerp(_currentSteerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
             
-            // 2. Накопление вращения колёс (spin) на основе RPM
             if (Mathf.Abs(_syncedWheelRPM) > 0.1f)
             {
                 float spinDelta = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
@@ -431,7 +549,6 @@ namespace Multi.PR1
                 if (_wheelSpinX < -360f) _wheelSpinX += 360f;
             }
             
-            // 3. Применяем трансформации к каждому колесу (только для не-владельцев)
             ApplyWheelTransform(frontLeftMesh, true, _currentSteerAngle);
             ApplyWheelTransform(frontRightMesh, true, _currentSteerAngle);
             ApplyWheelTransform(rearLeftMesh, false, 0f);
@@ -444,21 +561,18 @@ namespace Multi.PR1
             
             if (isFront)
             {
-                // Для передних колёс - поворот вокруг Y (steering) + вращение вокруг X (spin)
                 Quaternion spinRotation = Quaternion.Euler(_wheelSpinX, 0, 0);
                 Quaternion steerRotation = Quaternion.Euler(0, steerAngle, 0);
                 wheelMesh.transform.localRotation = steerRotation * spinRotation;
             }
             else
             {
-                // Для задних колёс - только вращение вокруг X
                 wheelMesh.transform.localRotation = Quaternion.Euler(_wheelSpinX, 0, 0);
             }
         }
 
         private void AnimateWheelMeshes()
         {
-            // Для владельца - используем реальные данные с WheelCollider (без дополнительных манипуляций)
             if (IsOwner)
             {
                 UpdateWheelPoseSimple(frontLeftCollider, frontLeftMesh);
@@ -466,7 +580,6 @@ namespace Multi.PR1
                 UpdateWheelPoseSimple(rearLeftCollider, rearLeftMesh);
                 UpdateWheelPoseSimple(rearRightCollider, rearRightMesh);
             }
-            // Для не-владельцев - обновляем только позицию (вращение уже в ApplySyncedVisuals)
             else
             {
                 UpdateWheelPositionOnly(frontLeftCollider, frontLeftMesh);
@@ -476,7 +589,6 @@ namespace Multi.PR1
             }
         }
         
-        // Простое обновление позиции и вращения от WheelCollider (для владельца)
         private void UpdateWheelPoseSimple(WheelCollider collider, GameObject mesh)
         {
             if (mesh == null || collider == null) return;
@@ -486,14 +598,12 @@ namespace Multi.PR1
             mesh.transform.rotation = rotation;
         }
         
-        // Обновление только позиции для не-владельцев (вращение из ApplySyncedVisuals)
         private void UpdateWheelPositionOnly(WheelCollider collider, GameObject mesh)
         {
             if (mesh == null || collider == null) return;
             
             collider.GetWorldPose(out Vector3 position, out Quaternion _);
             mesh.transform.position = position;
-            // Вращение не трогаем - оно уже обновляется в ApplySyncedVisuals
         }
 
         public void CarSpeedUI()

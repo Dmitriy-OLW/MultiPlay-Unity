@@ -6,7 +6,8 @@ namespace Multi.PR1
     public class PlayerInputHandler : NetworkBehaviour
     {
         [SerializeField] private PlayerNetwork _playerNetwork;
-        [SerializeField] private PlayerMovement _playerMovement;
+        [SerializeField] private CarCameraController _cameraController;
+        [SerializeField] private NetworkCarController _carController;
         [SerializeField] private Transform _bulletSpawnPoint;
 
         private void Start()
@@ -14,8 +15,11 @@ namespace Multi.PR1
             if (_playerNetwork == null)
                 _playerNetwork = GetComponent<PlayerNetwork>();
 
-            if (_playerMovement == null)
-                _playerMovement = GetComponent<PlayerMovement>();
+            if (_cameraController == null)
+                _cameraController = GetComponent<CarCameraController>();
+                
+            if (_carController == null)
+                _carController = GetComponent<NetworkCarController>();
                 
             // Автоматический поиск точки спавна пули, если не назначена
             if (_bulletSpawnPoint == null)
@@ -32,39 +36,69 @@ namespace Multi.PR1
         {
             if (!IsOwner) return;
             
-            // Защита от NullReferenceException
-            if (_playerMovement == null)
-            {
-                _playerMovement = GetComponent<PlayerMovement>();
-                if (_playerMovement == null) return;
-            }
-            
-            if (!_playerMovement.IsCursorLocked()) return;
-            
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
-    
-            if (Input.GetKeyDown(KeyCode.O))
+            
+            // Проверяем состояние курсора через CarCameraController
+            if (_cameraController != null && !IsCursorLocked()) return;
+            
+            // Смена цвета (оставляем для совместимости)
+            if (Input.GetKeyDown(KeyCode.P))
             {
                 _playerNetwork.RequestRandomColorServerRpc();
             }
+            
+            // Циклическая смена скина
+            if (Input.GetKeyDown(KeyCode.O))
+            {
+                _playerNetwork.CycleSkin();
+                Debug.Log($"[PlayerInputHandler] Cycling skin for player {OwnerClientId}");
+            }
     
+            // Стрельба
             if (Input.GetMouseButtonDown(0))
             {
-                Vector3 shootDirection = Input.GetMouseButton(1) 
-                    ? _playerMovement.GetCameraForward() 
-                    : transform.forward;
-
-                if (_bulletSpawnPoint != null)
-                {
-                    _playerNetwork.ShootServerRpc(_bulletSpawnPoint.position, shootDirection);
-                }
-                else
-                {
-                    // Fallback: стреляем из позиции перед игроком
-                    Vector3 fallbackSpawnPos = transform.position + transform.forward * 2f + Vector3.up * 1f;
-                    _playerNetwork.ShootServerRpc(fallbackSpawnPos, shootDirection);
-                }
+                // Получаем направление от камеры (центр экрана)
+                Vector3 shootDirection = GetCameraForward();
+                
+                // Стреляем из точки перед камерой
+                Vector3 shootPosition = GetShootPosition();
+                
+                _playerNetwork.ShootServerRpc(shootPosition, shootDirection);
+                Debug.Log($"[PlayerInputHandler] Player {OwnerClientId} shot from {shootPosition}");
             }
+        }
+        
+        private bool IsCursorLocked()
+        {
+            return Cursor.lockState == CursorLockMode.Locked;
+        }
+        
+        private Vector3 GetCameraForward()
+        {
+            Camera mainCamera = Camera.main;
+            if (mainCamera != null)
+            {
+                return mainCamera.transform.forward;
+            }
+            return transform.forward;
+        }
+        
+        private Vector3 GetShootPosition()
+        {
+            Camera mainCamera = Camera.main;
+            if (mainCamera != null && _bulletSpawnPoint == null)
+            {
+                // Стреляем из центра камеры
+                return mainCamera.transform.position + mainCamera.transform.forward * 0.5f;
+            }
+            
+            if (_bulletSpawnPoint != null)
+            {
+                return _bulletSpawnPoint.position;
+            }
+            
+            // Fallback: стреляем из позиции перед машиной
+            return transform.position + transform.forward * 2f + Vector3.up * 1f;
         }
     }
 }
