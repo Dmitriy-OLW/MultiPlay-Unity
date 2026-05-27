@@ -2,7 +2,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System;
-using Unity.Netcode.Components;
 
 namespace Multi.PR1
 {
@@ -104,9 +103,11 @@ namespace Multi.PR1
         private Quaternion _syncedRotation;
         private float _syncedCarSpeed;
         
-        // Для хранения накопленного вращения колёс на не-владельцах
-        private float _wheelRotationAccumulator = 0f;
-        private float _lastSyncedWheelRPM = 0f;
+        // Для накопления вращения колёс (spin) на не-владельцах
+        private float _wheelSpinX = 0f;
+        
+        // Для хранения текущих углов поворота колёс (steering) на не-владельцах
+        private float _currentSteerAngle = 0f;
         
         private float _lastSyncTime;
         private float _syncRate = 0.066f;
@@ -120,7 +121,6 @@ namespace Multi.PR1
             
             if (IsOwner)
             {
-                // Настройка камеры
                 if (_cameraController == null)
                 {
                     _cameraController = GetComponent<CarCameraController>();
@@ -140,7 +140,6 @@ namespace Multi.PR1
                 Debug.Log($"[CarController] Start - I am NOT owner. ClientId: {OwnerClientId}");
                 _startupTimer = 2f;
                 
-                // Отключаем физику для не-владельцев (они будут двигаться через NetworkTransform)
                 if (carRigidbody != null)
                 {
                     carRigidbody.isKinematic = true;
@@ -196,7 +195,6 @@ namespace Multi.PR1
 
         private void Update()
         {
-            // Таймер для включения интерполяции на не-владельцах
             if (!IsOwner && _startupTimer > 0)
             {
                 _startupTimer -= Time.deltaTime;
@@ -244,7 +242,6 @@ namespace Multi.PR1
             if (!_isInterpolationEnabled) return;
             if (_syncedPosition == Vector3.zero) return;
             
-            // Плавная интерполяция позиции
             transform.position = Vector3.Lerp(transform.position, _syncedPosition, Time.deltaTime * 15f);
             transform.rotation = Quaternion.Slerp(transform.rotation, _syncedRotation, Time.deltaTime * 15f);
         }
@@ -279,13 +276,17 @@ namespace Multi.PR1
             _syncedRotation = rotation;
             _syncedCarSpeed = speed;
             
+            if (carRigidbody != null)
+            {
+                carRigidbody.linearVelocity = velocity;
+            }
+            
             isDrifting = drifting;
             isTractionLocked = tractionLocked;
             carSpeed = speed;
             
             DriftCarPS();
             
-            // Обновляем UI скорости
             if (useUI && carSpeedText != null)
             {
                 carSpeedText.text = Mathf.RoundToInt(Mathf.Abs(speed)).ToString();
@@ -413,51 +414,86 @@ namespace Multi.PR1
             AnimateWheelMeshes();
         }
         
+        // ==================== СИНХРОНИЗАЦИЯ КОЛЁС ====================
+        
         private void ApplySyncedVisuals()
         {
-            // Синхронизация поворота колёс (угол поворота)
-            if (frontLeftCollider != null && Mathf.Abs(_syncedSteeringAngle) > 0.01f)
-            {
-                float smoothSteering = Mathf.Lerp(frontLeftCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
-                frontLeftCollider.steerAngle = smoothSteering;
-                frontRightCollider.steerAngle = smoothSteering;
-            }
-            else if (frontLeftCollider != null)
-            {
-                frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, 0f, Time.deltaTime * 10f);
-                frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, 0f, Time.deltaTime * 10f);
-            }
+            // 1. Плавное обновление угла поворота колёс (steering) для передних колёс
+            _currentSteerAngle = Mathf.Lerp(_currentSteerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
             
-            // Синхронизация вращения колёс (spin) - НЕПРЕРЫВНОЕ вращение
+            // 2. Накопление вращения колёс (spin) на основе RPM
             if (Mathf.Abs(_syncedWheelRPM) > 0.1f)
             {
-                // Накопленное вращение на основе RPM
-                float spinAngleThisFrame = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
-                _wheelRotationAccumulator += spinAngleThisFrame;
+                float spinDelta = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
+                _wheelSpinX += spinDelta;
                 
-                // Применяем вращение к мешам колёс
-                if (frontLeftMesh != null)
-                    frontLeftMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
-                        frontLeftMesh.transform.localEulerAngles.y, 
-                        frontLeftMesh.transform.localEulerAngles.z);
-                if (frontRightMesh != null)
-                    frontRightMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
-                        frontRightMesh.transform.localEulerAngles.y, 
-                        frontRightMesh.transform.localEulerAngles.z);
-                if (rearLeftMesh != null)
-                    rearLeftMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
-                        rearLeftMesh.transform.localEulerAngles.y, 
-                        rearLeftMesh.transform.localEulerAngles.z);
-                if (rearRightMesh != null)
-                    rearRightMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
-                        rearRightMesh.transform.localEulerAngles.y, 
-                        rearRightMesh.transform.localEulerAngles.z);
+                if (_wheelSpinX > 360f) _wheelSpinX -= 360f;
+                if (_wheelSpinX < -360f) _wheelSpinX += 360f;
+            }
+            
+            // 3. Применяем трансформации к каждому колесу (только для не-владельцев)
+            ApplyWheelTransform(frontLeftMesh, true, _currentSteerAngle);
+            ApplyWheelTransform(frontRightMesh, true, _currentSteerAngle);
+            ApplyWheelTransform(rearLeftMesh, false, 0f);
+            ApplyWheelTransform(rearRightMesh, false, 0f);
+        }
+        
+        private void ApplyWheelTransform(GameObject wheelMesh, bool isFront, float steerAngle)
+        {
+            if (wheelMesh == null) return;
+            
+            if (isFront)
+            {
+                // Для передних колёс - поворот вокруг Y (steering) + вращение вокруг X (spin)
+                Quaternion spinRotation = Quaternion.Euler(_wheelSpinX, 0, 0);
+                Quaternion steerRotation = Quaternion.Euler(0, steerAngle, 0);
+                wheelMesh.transform.localRotation = steerRotation * spinRotation;
             }
             else
             {
-                // Если машина стоит, медленно затухаем накопленное вращение (по желанию)
-                // _wheelRotationAccumulator остаётся неизменным, колёса не вращаются
+                // Для задних колёс - только вращение вокруг X
+                wheelMesh.transform.localRotation = Quaternion.Euler(_wheelSpinX, 0, 0);
             }
+        }
+
+        private void AnimateWheelMeshes()
+        {
+            // Для владельца - используем реальные данные с WheelCollider (без дополнительных манипуляций)
+            if (IsOwner)
+            {
+                UpdateWheelPoseSimple(frontLeftCollider, frontLeftMesh);
+                UpdateWheelPoseSimple(frontRightCollider, frontRightMesh);
+                UpdateWheelPoseSimple(rearLeftCollider, rearLeftMesh);
+                UpdateWheelPoseSimple(rearRightCollider, rearRightMesh);
+            }
+            // Для не-владельцев - обновляем только позицию (вращение уже в ApplySyncedVisuals)
+            else
+            {
+                UpdateWheelPositionOnly(frontLeftCollider, frontLeftMesh);
+                UpdateWheelPositionOnly(frontRightCollider, frontRightMesh);
+                UpdateWheelPositionOnly(rearLeftCollider, rearLeftMesh);
+                UpdateWheelPositionOnly(rearRightCollider, rearRightMesh);
+            }
+        }
+        
+        // Простое обновление позиции и вращения от WheelCollider (для владельца)
+        private void UpdateWheelPoseSimple(WheelCollider collider, GameObject mesh)
+        {
+            if (mesh == null || collider == null) return;
+            
+            collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
+            mesh.transform.position = position;
+            mesh.transform.rotation = rotation;
+        }
+        
+        // Обновление только позиции для не-владельцев (вращение из ApplySyncedVisuals)
+        private void UpdateWheelPositionOnly(WheelCollider collider, GameObject mesh)
+        {
+            if (mesh == null || collider == null) return;
+            
+            collider.GetWorldPose(out Vector3 position, out Quaternion _);
+            mesh.transform.position = position;
+            // Вращение не трогаем - оно уже обновляется в ApplySyncedVisuals
         }
 
         public void CarSpeedUI()
@@ -698,48 +734,6 @@ namespace Multi.PR1
             }
         }
 
-        private void AnimateWheelMeshes()
-        {
-            // Владелец - использует реальные данные с WheelCollider'ов
-            if (IsOwner)
-            {
-                UpdateWheelPose(frontLeftCollider, frontLeftMesh);
-                UpdateWheelPose(frontRightCollider, frontRightMesh);
-                UpdateWheelPose(rearLeftCollider, rearLeftMesh);
-                UpdateWheelPose(rearRightCollider, rearRightMesh);
-            }
-            // Не-владельцы - обновляют только позицию мешей (колёса уже вращаются через _wheelRotationAccumulator)
-            else
-            {
-                UpdateWheelPositionOnly(frontLeftCollider, frontLeftMesh);
-                UpdateWheelPositionOnly(frontRightCollider, frontRightMesh);
-                UpdateWheelPositionOnly(rearLeftCollider, rearLeftMesh);
-                UpdateWheelPositionOnly(rearRightCollider, rearRightMesh);
-            }
-        }
-
-        private void UpdateWheelPose(WheelCollider collider, GameObject mesh)
-        {
-            if (mesh == null || collider == null) return;
-            
-            collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
-            mesh.transform.position = position;
-            mesh.transform.rotation = rotation;
-        }
-        
-        private void UpdateWheelPositionOnly(WheelCollider collider, GameObject mesh)
-        {
-            if (mesh == null || collider == null) return;
-            
-            collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
-            mesh.transform.position = position;
-            // НЕ меняем rotation меша, чтобы не сбросить накопленное вращение
-            // Но нужно синхронизировать угол поворота колеса (steering)
-            // Для этого отдельно синхронизируем локальное вращение по оси Y
-            Vector3 currentEuler = mesh.transform.localEulerAngles;
-            mesh.transform.localEulerAngles = new Vector3(currentEuler.x, rotation.eulerAngles.y, currentEuler.z);
-        }
-
         public float GetCurrentSteeringAngle()
         {
             return frontLeftCollider != null ? frontLeftCollider.steerAngle : 0f;
@@ -780,7 +774,8 @@ namespace Multi.PR1
             _syncedIsTractionLocked = false;
             _syncedVelocity = Vector3.zero;
             _syncedCarSpeed = 0f;
-            _wheelRotationAccumulator = 0f;
+            _wheelSpinX = 0f;
+            _currentSteerAngle = 0f;
             
             ResetSteeringAngle();
             
