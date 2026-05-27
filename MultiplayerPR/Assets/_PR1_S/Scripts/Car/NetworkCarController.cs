@@ -2,6 +2,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System;
+using Unity.Netcode.Components;
 
 namespace Multi.PR1
 {
@@ -81,6 +82,8 @@ namespace Multi.PR1
         private float localVelocityX;
         private bool deceleratingCar;
         private float _lastShootTime;
+        private float _startupTimer = 0f;
+        private bool _isInterpolationEnabled = false;
 
         private WheelFrictionCurve FLwheelFriction;
         private float FLWextremumSlip;
@@ -97,20 +100,27 @@ namespace Multi.PR1
         private bool _syncedIsDrifting;
         private bool _syncedIsTractionLocked;
         private Vector3 _syncedVelocity;
+        private Vector3 _syncedPosition;
+        private Quaternion _syncedRotation;
         private float _syncedCarSpeed;
         
+        // Для хранения накопленного вращения колёс на не-владельцах
+        private float _wheelRotationAccumulator = 0f;
+        private float _lastSyncedWheelRPM = 0f;
+        
         private float _lastSyncTime;
-        private float _syncRate = 0.066f; // ~15 раз в секунду
+        private float _syncRate = 0.066f;
 
         private void Start()
         {
             if (_playerNetwork == null)
                 _playerNetwork = GetComponent<PlayerNetwork>();
             
-            // Инициализация для владельца
+            carRigidbody = GetComponent<Rigidbody>();
+            
             if (IsOwner)
             {
-                // Инициализация камеры
+                // Настройка камеры
                 if (_cameraController == null)
                 {
                     _cameraController = GetComponent<CarCameraController>();
@@ -128,22 +138,29 @@ namespace Multi.PR1
             else
             {
                 Debug.Log($"[CarController] Start - I am NOT owner. ClientId: {OwnerClientId}");
+                _startupTimer = 2f;
+                
+                // Отключаем физику для не-владельцев (они будут двигаться через NetworkTransform)
+                if (carRigidbody != null)
+                {
+                    carRigidbody.isKinematic = true;
+                }
             }
 
             SetupCarPhysics();
             SetupSounds();
         }
-
+        
         private void SetupCarPhysics()
         {
-            carRigidbody = GetComponent<Rigidbody>();
             if (carRigidbody != null)
             {
                 carRigidbody.centerOfMass = bodyMassCenter;
-            }
-            else
-            {
-                Debug.LogWarning($"[CarController] Rigidbody not found on {gameObject.name}");
+                if (IsOwner)
+                {
+                    carRigidbody.isKinematic = false;
+                    carRigidbody.interpolation = RigidbodyInterpolation.Interpolate;
+                }
             }
 
             if (frontLeftCollider != null)
@@ -179,38 +196,34 @@ namespace Multi.PR1
 
         private void Update()
         {
+            // Таймер для включения интерполяции на не-владельцах
+            if (!IsOwner && _startupTimer > 0)
+            {
+                _startupTimer -= Time.deltaTime;
+                if (_startupTimer <= 0)
+                {
+                    _isInterpolationEnabled = true;
+                    Debug.Log($"[CarController] Interpolation enabled for client {OwnerClientId}");
+                }
+            }
+            
             if (!IsOwner) 
             {
                 ApplySyncedVisuals();
+                ApplyPositionInterpolation();
                 return;
             }
             
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
             
-            // Управление курсором через Escape
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (_cameraController != null)
                 {
                     _cameraController.ToggleCursorLock();
                 }
-                else
-                {
-                    // Fallback если камера не инициализирована
-                    if (Cursor.lockState == CursorLockMode.Locked)
-                    {
-                        Cursor.lockState = CursorLockMode.None;
-                        Cursor.visible = true;
-                    }
-                    else
-                    {
-                        Cursor.lockState = CursorLockMode.Locked;
-                        Cursor.visible = false;
-                    }
-                }
             }
             
-            // Если курсор не заблокирован - не обрабатываем управление машиной
             if (Cursor.lockState != CursorLockMode.Locked)
             {
                 return;
@@ -219,7 +232,6 @@ namespace Multi.PR1
             HandleCarInput();
             HandleShooting();
             
-            // Отправка состояния на сервер
             if (Time.time - _lastSyncTime > _syncRate)
             {
                 SendCarStateToServer();
@@ -227,32 +239,34 @@ namespace Multi.PR1
             }
         }
         
-        /// <summary>
-        /// Отправка состояния машины на сервер через ClientRpc систему
-        /// </summary>
+        private void ApplyPositionInterpolation()
+        {
+            if (!_isInterpolationEnabled) return;
+            if (_syncedPosition == Vector3.zero) return;
+            
+            // Плавная интерполяция позиции
+            transform.position = Vector3.Lerp(transform.position, _syncedPosition, Time.deltaTime * 15f);
+            transform.rotation = Quaternion.Slerp(transform.rotation, _syncedRotation, Time.deltaTime * 15f);
+        }
+        
         private void SendCarStateToServer()
         {
             if (!IsOwner) return;
-            if (_playerNetwork == null)
-            {
-                Debug.LogError($"[CarController] PlayerNetwork is NULL for owner {OwnerClientId}!");
-                return;
-            }
+            if (_playerNetwork == null) return;
             
             float steering = GetCurrentSteeringAngle();
             float rpm = GetAverageWheelRPM();
             bool drifting = isDrifting;
             bool traction = isTractionLocked;
             Vector3 velocity = GetVelocity();
+            Vector3 position = transform.position;
+            Quaternion rotation = transform.rotation;
             float speed = carSpeed;
             
-            _playerNetwork.SendCarStateServerRpc(steering, rpm, drifting, traction, velocity, speed);
+            _playerNetwork.SendCarStateServerRpc(steering, rpm, drifting, traction, velocity, position, rotation, speed);
         }
         
-        /// <summary>
-        /// Применение синхронизированного состояния (вызывается из ClientRpc)
-        /// </summary>
-        public void ApplySyncedCarState(float steeringAngle, float wheelRPM, bool drifting, bool tractionLocked, Vector3 velocity, float speed)
+        public void ApplySyncedCarState(float steeringAngle, float wheelRPM, bool drifting, bool tractionLocked, Vector3 velocity, Vector3 position, Quaternion rotation, float speed)
         {
             if (IsOwner) return;
             
@@ -261,19 +275,21 @@ namespace Multi.PR1
             _syncedIsDrifting = drifting;
             _syncedIsTractionLocked = tractionLocked;
             _syncedVelocity = velocity;
+            _syncedPosition = position;
+            _syncedRotation = rotation;
             _syncedCarSpeed = speed;
-            
-            // Применяем физику для не-владельца
-            if (carRigidbody != null)
-            {
-                carRigidbody.linearVelocity = velocity;
-            }
             
             isDrifting = drifting;
             isTractionLocked = tractionLocked;
             carSpeed = speed;
             
             DriftCarPS();
+            
+            // Обновляем UI скорости
+            if (useUI && carSpeedText != null)
+            {
+                carSpeedText.text = Mathf.RoundToInt(Mathf.Abs(speed)).ToString();
+            }
         }
 
         private void HandleCarInput()
@@ -331,11 +347,7 @@ namespace Multi.PR1
         {
             if (_playerNetwork == null) return;
             if (!_playerNetwork.IsAlive.Value) return;
-            if (_bulletPrefab == null)
-            {
-                Debug.LogWarning("[CarController] Bullet prefab not assigned!");
-                return;
-            }
+            if (_bulletPrefab == null) return;
 
             if (Input.GetKeyDown(_shootKey))
             {
@@ -348,14 +360,10 @@ namespace Multi.PR1
             Camera playerCamera = Camera.main;
             if (playerCamera == null) return;
             
-            // Получаем направление от центра экрана (прицел)
             Ray ray = playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
-            
-            Vector3 shootDirection = ray.direction;
             Vector3 shootPosition = _shootPoint != null ? _shootPoint.position : transform.position + transform.forward * 2f;
             
-            // Отправляем на сервер
-            ShootServerRpc(shootPosition, shootDirection);
+            ShootServerRpc(shootPosition, ray.direction);
         }
 
         [ServerRpc]
@@ -366,7 +374,6 @@ namespace Multi.PR1
             
             _lastShootTime = Time.time;
 
-            // Создаем пулю из префаба
             GameObject bullet = Instantiate(_bulletPrefab, spawnPos, Quaternion.LookRotation(direction));
             BulletNetwork bulletScript = bullet.GetComponent<BulletNetwork>();
             if (bulletScript != null)
@@ -375,8 +382,6 @@ namespace Multi.PR1
             }
             
             bullet.GetComponent<NetworkObject>().Spawn();
-            
-            Debug.Log($"[CarController] Player {OwnerClientId} shot from car");
         }
 
         private void UpdateCarData()
@@ -410,26 +415,48 @@ namespace Multi.PR1
         
         private void ApplySyncedVisuals()
         {
-            // Применяем синхронизированный угол поворота колес
-            if (frontLeftCollider != null && _syncedSteeringAngle != 0)
+            // Синхронизация поворота колёс (угол поворота)
+            if (frontLeftCollider != null && Mathf.Abs(_syncedSteeringAngle) > 0.01f)
             {
-                frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
-                frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
+                float smoothSteering = Mathf.Lerp(frontLeftCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
+                frontLeftCollider.steerAngle = smoothSteering;
+                frontRightCollider.steerAngle = smoothSteering;
+            }
+            else if (frontLeftCollider != null)
+            {
+                frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, 0f, Time.deltaTime * 10f);
+                frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, 0f, Time.deltaTime * 10f);
             }
             
-            // Применяем синхронизированное вращение колес
-            if (_syncedWheelRPM != 0)
+            // Синхронизация вращения колёс (spin) - НЕПРЕРЫВНОЕ вращение
+            if (Mathf.Abs(_syncedWheelRPM) > 0.1f)
             {
-                float spinAngle = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
+                // Накопленное вращение на основе RPM
+                float spinAngleThisFrame = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
+                _wheelRotationAccumulator += spinAngleThisFrame;
                 
+                // Применяем вращение к мешам колёс
                 if (frontLeftMesh != null)
-                    frontLeftMesh.transform.Rotate(Vector3.right, spinAngle);
+                    frontLeftMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
+                        frontLeftMesh.transform.localEulerAngles.y, 
+                        frontLeftMesh.transform.localEulerAngles.z);
                 if (frontRightMesh != null)
-                    frontRightMesh.transform.Rotate(Vector3.right, spinAngle);
+                    frontRightMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
+                        frontRightMesh.transform.localEulerAngles.y, 
+                        frontRightMesh.transform.localEulerAngles.z);
                 if (rearLeftMesh != null)
-                    rearLeftMesh.transform.Rotate(Vector3.right, spinAngle);
+                    rearLeftMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
+                        rearLeftMesh.transform.localEulerAngles.y, 
+                        rearLeftMesh.transform.localEulerAngles.z);
                 if (rearRightMesh != null)
-                    rearRightMesh.transform.Rotate(Vector3.right, spinAngle);
+                    rearRightMesh.transform.localEulerAngles = new Vector3(_wheelRotationAccumulator, 
+                        rearRightMesh.transform.localEulerAngles.y, 
+                        rearRightMesh.transform.localEulerAngles.z);
+            }
+            else
+            {
+                // Если машина стоит, медленно затухаем накопленное вращение (по желанию)
+                // _wheelRotationAccumulator остаётся неизменным, колёса не вращаются
             }
         }
 
@@ -673,10 +700,22 @@ namespace Multi.PR1
 
         private void AnimateWheelMeshes()
         {
-            UpdateWheelPose(frontLeftCollider, frontLeftMesh);
-            UpdateWheelPose(frontRightCollider, frontRightMesh);
-            UpdateWheelPose(rearLeftCollider, rearLeftMesh);
-            UpdateWheelPose(rearRightCollider, rearRightMesh);
+            // Владелец - использует реальные данные с WheelCollider'ов
+            if (IsOwner)
+            {
+                UpdateWheelPose(frontLeftCollider, frontLeftMesh);
+                UpdateWheelPose(frontRightCollider, frontRightMesh);
+                UpdateWheelPose(rearLeftCollider, rearLeftMesh);
+                UpdateWheelPose(rearRightCollider, rearRightMesh);
+            }
+            // Не-владельцы - обновляют только позицию мешей (колёса уже вращаются через _wheelRotationAccumulator)
+            else
+            {
+                UpdateWheelPositionOnly(frontLeftCollider, frontLeftMesh);
+                UpdateWheelPositionOnly(frontRightCollider, frontRightMesh);
+                UpdateWheelPositionOnly(rearLeftCollider, rearLeftMesh);
+                UpdateWheelPositionOnly(rearRightCollider, rearRightMesh);
+            }
         }
 
         private void UpdateWheelPose(WheelCollider collider, GameObject mesh)
@@ -686,6 +725,19 @@ namespace Multi.PR1
             collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
             mesh.transform.position = position;
             mesh.transform.rotation = rotation;
+        }
+        
+        private void UpdateWheelPositionOnly(WheelCollider collider, GameObject mesh)
+        {
+            if (mesh == null || collider == null) return;
+            
+            collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
+            mesh.transform.position = position;
+            // НЕ меняем rotation меша, чтобы не сбросить накопленное вращение
+            // Но нужно синхронизировать угол поворота колеса (steering)
+            // Для этого отдельно синхронизируем локальное вращение по оси Y
+            Vector3 currentEuler = mesh.transform.localEulerAngles;
+            mesh.transform.localEulerAngles = new Vector3(currentEuler.x, rotation.eulerAngles.y, currentEuler.z);
         }
 
         public float GetCurrentSteeringAngle()
@@ -704,6 +756,16 @@ namespace Multi.PR1
             return carRigidbody != null ? carRigidbody.linearVelocity : Vector3.zero;
         }
         
+        public Vector3 GetPosition()
+        {
+            return transform.position;
+        }
+        
+        public Quaternion GetRotation()
+        {
+            return transform.rotation;
+        }
+        
         public void ResetCarState()
         {
             steeringAxis = 0f;
@@ -718,10 +780,11 @@ namespace Multi.PR1
             _syncedIsTractionLocked = false;
             _syncedVelocity = Vector3.zero;
             _syncedCarSpeed = 0f;
+            _wheelRotationAccumulator = 0f;
             
             ResetSteeringAngle();
             
-            if (carRigidbody != null)
+            if (carRigidbody != null && IsOwner)
             {
                 carRigidbody.linearVelocity = Vector3.zero;
                 carRigidbody.angularVelocity = Vector3.zero;
@@ -754,13 +817,10 @@ namespace Multi.PR1
             
             ResetFrictionToDefault();
             
-            // Сброс углов камеры
             if (_cameraController != null && IsOwner)
             {
                 _cameraController.ResetCameraAngles();
             }
-            
-            Debug.Log($"[CarController] ResetCarState - Client {OwnerClientId}");
         }
     }
 }

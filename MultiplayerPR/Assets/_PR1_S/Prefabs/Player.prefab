@@ -274,6 +274,8 @@ MonoBehaviour:
   _disableDefaultRenderer: 1
   _syncRate: 0.05
   _spawnPoints: []
+  _spawnDistanceThreshold: 3
+  _spawnForceDuration: 1
 --- !u!114 &5935825219246852585
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -353,7 +355,7 @@ MonoBehaviour:
   _shootPoint: {fileID: 1335345142985879900}
   _shootKey: 101
   _shootCooldown: 1
-  _cameraController: {fileID: 0}
+  _cameraController: {fileID: 4052191177699191275}
   carSpeed: 0
   isDrifting: 0
   isTractionLocked: 0

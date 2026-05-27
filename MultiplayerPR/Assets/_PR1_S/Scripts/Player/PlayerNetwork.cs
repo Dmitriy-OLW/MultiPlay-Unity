@@ -77,10 +77,15 @@ namespace Multi.PR1
         [SerializeField] private float _syncRate = 0.05f;
         
         [Header("References")]
-        [SerializeField] private Transform[] _spawnPoints; 
+        [SerializeField] private Transform[] _spawnPoints;
+        
+        [Header("Spawn Teleport Settings")]
+        [SerializeField] private float _spawnDistanceThreshold = 3f;
+        [SerializeField] private float _spawnForceDuration = 1f;
         
         private Renderer _renderer;
         private Coroutine _respawnCoroutine;
+        private Coroutine _forceSpawnSyncCoroutine;
         private PlayerMovement _playerMovement;
         private PlayerCombat _playerCombat;
         private PlayerInputHandler _playerInput;
@@ -172,50 +177,41 @@ namespace Multi.PR1
             
             if (_respawnCoroutine != null)
                 StopCoroutine(_respawnCoroutine);
+                
+            if (_forceSpawnSyncCoroutine != null)
+                StopCoroutine(_forceSpawnSyncCoroutine);
         }
 
         // ==================== CAR SYNC - CLIENTRPC METHODS ====================
         
-        /// <summary>
-        /// Отправка состояния машины с клиента на сервер
-        /// </summary>
+// ==================== CAR SYNC - CLIENTRPC METHODS ====================
+        
         [ServerRpc(RequireOwnership = true)]
-        public void SendCarStateServerRpc(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, float carSpeed)
+        public void SendCarStateServerRpc(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, Vector3 position, Quaternion rotation, float carSpeed)
         {
             if (!IsServer) return;
-            
-            Debug.Log($"[ServerRpc] Received car state from player {OwnerClientId}: steering={steeringAngle:F1}, drifting={isDrifting}, rpm={wheelRPM:F0}");
-            
-            // Рассылаем состояние всем клиентам (включая отправителя)
-            SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, carSpeed);
+    
+            Debug.Log($"[ServerRpc] Received car state from player {OwnerClientId}: steering={steeringAngle:F1}, drifting={isDrifting}, position={position}");
+    
+            SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, position, rotation, carSpeed);
         }
-        
-        /// <summary>
-        /// Синхронизация состояния машины на всех клиентах
-        /// </summary>
+
         [ClientRpc]
-        private void SyncCarStateClientRpc(ulong sourceClientId, float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, float carSpeed)
+        private void SyncCarStateClientRpc(ulong sourceClientId, float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, Vector3 position, Quaternion rotation, float carSpeed)
         {
-            // Не синхронизируем для владельца - он и так знает свое состояние
             if (IsOwner && OwnerClientId == sourceClientId) return;
-            
-            Debug.Log($"[ClientRpc] Syncing car state for player {OwnerClientId} from source {sourceClientId}: steering={steeringAngle:F1}, drifting={isDrifting}");
-            
+    
             if (_carController != null)
             {
-                _carController.ApplySyncedCarState(steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, carSpeed);
+                _carController.ApplySyncedCarState(steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, position, rotation, carSpeed);
             }
         }
-        
-        /// <summary>
-        /// Принудительная синхронизация для текущего игрока (для хоста)
-        /// </summary>
-        public void BroadcastCarState(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, float carSpeed)
+
+        public void BroadcastCarState(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, Vector3 position, Quaternion rotation, float carSpeed)
         {
             if (!IsServer) return;
-            
-            Debug.Log($"[Broadcast] Broadcasting car state for player {OwnerClientId}");
-            SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, carSpeed);
+    
+            SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, position, rotation, carSpeed);
         }
         
         // ==================== OTHER NETWORK METHODS ====================
@@ -277,6 +273,16 @@ namespace Multi.PR1
         {
             if (_isPositionSynced) return;
             
+            ForceTeleportToPosition(position, rotation);
+            _isPositionSynced = true;
+            Debug.Log($"[PlayerNetwork] Applied spawn position: {position} for player {OwnerClientId}");
+        }
+        
+        /// <summary>
+        /// Принудительная телепортация с полным сбросом физики
+        /// </summary>
+        private void ForceTeleportToPosition(Vector3 position, Quaternion rotation)
+        {
             transform.position = position;
             transform.rotation = rotation;
             
@@ -285,8 +291,15 @@ namespace Multi.PR1
             {
                 rb.linearVelocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
+                // Для kinematic rigidbody нужно также сбросить позицию через MovePosition
+                if (rb.isKinematic)
+                {
+                    rb.MovePosition(position);
+                    rb.MoveRotation(rotation);
+                }
             }
             
+            // Сброс состояния WheelCollider'ов
             WheelCollider[] wheels = GetComponentsInChildren<WheelCollider>();
             foreach (var wheel in wheels)
             {
@@ -300,8 +313,50 @@ namespace Multi.PR1
                 _carController.ResetCarState();
             }
             
-            _isPositionSynced = true;
-            Debug.Log($"[PlayerNetwork] Applied spawn position: {position} for player {OwnerClientId}");
+            Debug.Log($"[PlayerNetwork] Force teleported to position: {position}");
+        }
+        
+        /// <summary>
+        /// Проверка и принудительная синхронизация позиции с повтором
+        /// </summary>
+        private IEnumerator ForceSpawnSyncCoroutine(Vector3 targetPosition, Quaternion targetRotation)
+        {
+            float startTime = Time.time;
+            float endTime = startTime + _spawnForceDuration;
+            int retryCount = 0;
+            
+            // Первая немедленная телепортация
+            ForceTeleportToPosition(targetPosition, targetRotation);
+            yield return null;
+            
+            while (Time.time < endTime)
+            {
+                float distance = Vector3.Distance(transform.position, targetPosition);
+                
+                if (distance > _spawnDistanceThreshold)
+                {
+                    retryCount++;
+                    Debug.LogWarning($"[PlayerNetwork] Player {OwnerClientId} is {distance:F2}m from spawn point (threshold: {_spawnDistanceThreshold}m). Force teleporting again. Retry #{retryCount}");
+                    ForceTeleportToPosition(targetPosition, targetRotation);
+                }
+                else if (retryCount > 0)
+                {
+                    Debug.Log($"[PlayerNetwork] Player {OwnerClientId} successfully synced to spawn point (distance: {distance:F2}m)");
+                }
+                
+                yield return new WaitForSeconds(0.1f);
+            }
+            
+            // Финальная проверка
+            float finalDistance = Vector3.Distance(transform.position, targetPosition);
+            if (finalDistance > _spawnDistanceThreshold)
+            {
+                Debug.LogWarning($"[PlayerNetwork] Final force teleport for player {OwnerClientId} (distance: {finalDistance:F2}m)");
+                ForceTeleportToPosition(targetPosition, targetRotation);
+            }
+            
+            _forceSpawnSyncCoroutine = null;
+            Debug.Log($"[PlayerNetwork] Spawn sync completed for player {OwnerClientId}");
         }
         
         private IEnumerator SetInitialSpawnPointAndSkin()
@@ -328,15 +383,24 @@ namespace Multi.PR1
             
             if (spawnPoint != null)
             {
-                transform.position = spawnPoint.position;
-                transform.rotation = spawnPoint.rotation;
+                Vector3 targetPosition = spawnPoint.position;
+                Quaternion targetRotation = spawnPoint.rotation;
                 
-                SpawnPosition.Value = spawnPoint.position;
-                SpawnRotation.Value = spawnPoint.rotation;
+                transform.position = targetPosition;
+                transform.rotation = targetRotation;
                 
-                TeleportToSpawnPointClientRpc(spawnPoint.position, spawnPoint.rotation);
+                SpawnPosition.Value = targetPosition;
+                SpawnRotation.Value = targetRotation;
                 
-                Debug.Log($"[PlayerNetwork] Player {OwnerClientId} initial spawn at {spawnPoint.position}");
+                // Запускаем принудительную синхронизацию для всех клиентов
+                TeleportToSpawnPointClientRpc(targetPosition, targetRotation);
+                
+                // Запускаем корутину для принудительной синхронизации на сервере
+                if (_forceSpawnSyncCoroutine != null)
+                    StopCoroutine(_forceSpawnSyncCoroutine);
+                _forceSpawnSyncCoroutine = StartCoroutine(ForceSpawnSyncCoroutine(targetPosition, targetRotation));
+                
+                Debug.Log($"[PlayerNetwork] Player {OwnerClientId} initial spawn at {targetPosition}");
             }
         }
 
@@ -407,28 +471,12 @@ namespace Multi.PR1
         {
             Debug.Log($"[PlayerNetwork] TeleportToSpawnPointClientRpc - Player {OwnerClientId} to {position}");
             
-            transform.position = position;
-            transform.rotation = rotation;
+            ForceTeleportToPosition(position, rotation);
             
-            Rigidbody rb = GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-            }
-            
-            WheelCollider[] wheels = GetComponentsInChildren<WheelCollider>();
-            foreach (var wheel in wheels)
-            {
-                wheel.motorTorque = 0;
-                wheel.brakeTorque = 0;
-                wheel.steerAngle = 0;
-            }
-            
-            if (_carController != null)
-            {
-                _carController.ResetCarState();
-            }
+            // Также запускаем принудительную синхронизацию на клиенте
+            if (_forceSpawnSyncCoroutine != null)
+                StopCoroutine(_forceSpawnSyncCoroutine);
+            _forceSpawnSyncCoroutine = StartCoroutine(ForceSpawnSyncCoroutine(position, rotation));
         }
 
         private void UpdateComponentsState(bool isAlive)
@@ -507,20 +555,26 @@ namespace Multi.PR1
             
             if (spawnPoint != null)
             {
-                transform.position = spawnPoint.position;
-                transform.rotation = spawnPoint.rotation;
+                Vector3 targetPosition = spawnPoint.position;
+                Quaternion targetRotation = spawnPoint.rotation;
                 
-                SpawnPosition.Value = spawnPoint.position;
-                SpawnRotation.Value = spawnPoint.rotation;
+                ForceTeleportToPosition(targetPosition, targetRotation);
                 
-                TeleportToSpawnPointClientRpc(spawnPoint.position, spawnPoint.rotation);
+                SpawnPosition.Value = targetPosition;
+                SpawnRotation.Value = targetRotation;
+                
+                TeleportToSpawnPointClientRpc(targetPosition, targetRotation);
+                
+                // Запускаем принудительную синхронизацию
+                if (_forceSpawnSyncCoroutine != null)
+                    StopCoroutine(_forceSpawnSyncCoroutine);
+                _forceSpawnSyncCoroutine = StartCoroutine(ForceSpawnSyncCoroutine(targetPosition, targetRotation));
             }
             
             Health.Value = 100;
             Ammo.Value = 10;
             IsAlive.Value = true;
             _lastShootTime = 0;
-            _isPositionSynced = true;
             
             _respawnCoroutine = null;
             
