@@ -43,7 +43,6 @@ namespace Multi.PR1
             NetworkVariableWritePermission.Server
         );
         
-        // NetworkVariable для синхронизации позиции
         public NetworkVariable<Vector3> SpawnPosition = new(
             Vector3.zero,
             NetworkVariableReadPermission.Everyone,
@@ -56,46 +55,8 @@ namespace Multi.PR1
             NetworkVariableWritePermission.Server
         );
         
-        // NetworkVariable для синхронизации индекса скина
         public NetworkVariable<int> SkinIndex = new(
             -1,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server
-        );
-        
-        // НОВЫЕ NetworkVariable для синхронизации параметров машины
-        public NetworkVariable<float> NetworkedCarSpeed = new(
-            0f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server
-        );
-        
-        public NetworkVariable<float> NetworkedSteeringAngle = new(
-            0f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server
-        );
-        
-        public NetworkVariable<float> NetworkedWheelRPM = new(
-            0f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server
-        );
-        
-        public NetworkVariable<bool> NetworkedIsDrifting = new(
-            false,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server
-        );
-        
-        public NetworkVariable<bool> NetworkedIsTractionLocked = new(
-            false,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server
-        );
-        
-        public NetworkVariable<Vector3> NetworkedVelocity = new(
-            Vector3.zero,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server
         );
@@ -129,7 +90,6 @@ namespace Multi.PR1
         private Material _material;
         private bool _isPositionSynced = false;
         private int _currentActiveSkin = -1;
-        private float _lastSyncTime;
 
         private void Awake()
         {
@@ -148,7 +108,7 @@ namespace Multi.PR1
 
         public override void OnNetworkSpawn()
         {
-            Debug.Log($"[PlayerNetwork] OnNetworkSpawn - ClientId: {OwnerClientId}, IsOwner: {IsOwner}, IsServer: {IsServer}, IsClient: {IsClient}");
+            Debug.Log($"[PlayerNetwork] OnNetworkSpawn - ClientId: {OwnerClientId}, IsOwner: {IsOwner}, IsServer: {IsServer}");
             
             if (IsOwner)
             {
@@ -162,17 +122,6 @@ namespace Multi.PR1
             SpawnPosition.OnValueChanged += OnSpawnPositionChanged;
             SpawnRotation.OnValueChanged += OnSpawnRotationChanged;
             SkinIndex.OnValueChanged += OnSkinIndexChanged;
-            
-            // Подписываемся на синхронизацию машины (для не-владельцев)
-            if (!IsOwner)
-            {
-                Debug.Log($"[PlayerNetwork] Subscribing to car sync events for client {OwnerClientId}");
-                NetworkedSteeringAngle.OnValueChanged += OnSteeringAngleSynced;
-                NetworkedWheelRPM.OnValueChanged += OnWheelRPMSynced;
-                NetworkedIsDrifting.OnValueChanged += OnDriftingStateSynced;
-                NetworkedIsTractionLocked.OnValueChanged += OnTractionStateSynced;
-                NetworkedVelocity.OnValueChanged += OnVelocitySynced;
-            }
             
             if (_material != null)
             {
@@ -197,15 +146,6 @@ namespace Multi.PR1
             
             if (IsServer && IsAlive.Value)
             {
-                // Инициализируем NetworkVariable начальными значениями
-                NetworkedSteeringAngle.Value = 0f;
-                NetworkedWheelRPM.Value = 0f;
-                NetworkedIsDrifting.Value = false;
-                NetworkedIsTractionLocked.Value = false;
-                NetworkedVelocity.Value = Vector3.zero;
-                NetworkedCarSpeed.Value = 0f;
-                
-                Debug.Log($"[PlayerNetwork] NetworkVariables initialized on server for {OwnerClientId}");
                 StartCoroutine(SetInitialSpawnPointAndSkin());
             }
             
@@ -214,106 +154,71 @@ namespace Multi.PR1
                 SetDeadColorClientRpc();
             }
         }
+
+        public override void OnNetworkDespawn()
+        {
+            PlayerColor.OnValueChanged -= OnColorChanged;
+            Health.OnValueChanged -= OnHealthChanged;
+            IsAlive.OnValueChanged -= OnIsAliveChanged;
+            Ammo.OnValueChanged -= OnAmmoChanged;
+            SpawnPosition.OnValueChanged -= OnSpawnPositionChanged;
+            SpawnRotation.OnValueChanged -= OnSpawnRotationChanged;
+            SkinIndex.OnValueChanged -= OnSkinIndexChanged;
+            
+            if (IsServer && PlayerSpawner.Instance != null)
+            {
+                PlayerSpawner.Instance.ReleaseSpawnPoint(OwnerClientId);
+            }
+            
+            if (_respawnCoroutine != null)
+                StopCoroutine(_respawnCoroutine);
+        }
+
+        // ==================== CAR SYNC - CLIENTRPC METHODS ====================
         
-        private void Update()
+        /// <summary>
+        /// Отправка состояния машины с клиента на сервер
+        /// </summary>
+        [ServerRpc(RequireOwnership = true)]
+        public void SendCarStateServerRpc(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, float carSpeed)
         {
             if (!IsServer) return;
-            if (!IsAlive.Value) return;
             
-            // Синхронизация параметров машины с сервера на клиенты
-            if (Time.time - _lastSyncTime > _syncRate)
+            Debug.Log($"[ServerRpc] Received car state from player {OwnerClientId}: steering={steeringAngle:F1}, drifting={isDrifting}, rpm={wheelRPM:F0}");
+            
+            // Рассылаем состояние всем клиентам (включая отправителя)
+            SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, carSpeed);
+        }
+        
+        /// <summary>
+        /// Синхронизация состояния машины на всех клиентах
+        /// </summary>
+        [ClientRpc]
+        private void SyncCarStateClientRpc(ulong sourceClientId, float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, float carSpeed)
+        {
+            // Не синхронизируем для владельца - он и так знает свое состояние
+            if (IsOwner && OwnerClientId == sourceClientId) return;
+            
+            Debug.Log($"[ClientRpc] Syncing car state for player {OwnerClientId} from source {sourceClientId}: steering={steeringAngle:F1}, drifting={isDrifting}");
+            
+            if (_carController != null)
             {
-                SyncCarParameters();
-                _lastSyncTime = Time.time;
+                _carController.ApplySyncedCarState(steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, carSpeed);
             }
         }
         
-        private void SyncCarParameters()
+        /// <summary>
+        /// Принудительная синхронизация для текущего игрока (для хоста)
+        /// </summary>
+        public void BroadcastCarState(float steeringAngle, float wheelRPM, bool isDrifting, bool isTractionLocked, Vector3 velocity, float carSpeed)
         {
-            if (_carController == null)
-            {
-                Debug.LogWarning($"[PlayerNetwork] SyncCarParameters - CarController is NULL for {OwnerClientId}");
-                return;
-            }
+            if (!IsServer) return;
             
-            if (!IsAlive.Value)
-            {
-                return;
-            }
-            
-            float newSteering = _carController.GetCurrentSteeringAngle();
-            float newRPM = _carController.GetAverageWheelRPM();
-            float newCarSpeed = _carController.carSpeed;
-            bool newDrifting = _carController.isDrifting;
-            bool newTraction = _carController.isTractionLocked;
-            Vector3 newVelocity = _carController.GetVelocity();
-            
-            // Логируем изменения
-            if (Mathf.Abs(NetworkedSteeringAngle.Value - newSteering) > 0.5f)
-            {
-                Debug.Log($"[PlayerNetwork] Sync - Player {OwnerClientId} steering: {NetworkedSteeringAngle.Value:F1} -> {newSteering:F1}");
-            }
-            
-            if (NetworkedIsDrifting.Value != newDrifting)
-            {
-                Debug.Log($"[PlayerNetwork] Sync - Player {OwnerClientId} drifting: {NetworkedIsDrifting.Value} -> {newDrifting}");
-            }
-            
-            // Обновляем NetworkVariable
-            NetworkedSteeringAngle.Value = newSteering;
-            NetworkedWheelRPM.Value = newRPM;
-            NetworkedIsDrifting.Value = newDrifting;
-            NetworkedIsTractionLocked.Value = newTraction;
-            NetworkedVelocity.Value = newVelocity;
-            NetworkedCarSpeed.Value = newCarSpeed;
+            Debug.Log($"[Broadcast] Broadcasting car state for player {OwnerClientId}");
+            SyncCarStateClientRpc(OwnerClientId, steeringAngle, wheelRPM, isDrifting, isTractionLocked, velocity, carSpeed);
         }
         
-        // Колбэки синхронизации для клиентов
-        private void OnSteeringAngleSynced(float oldValue, float newValue)
-        {
-            Debug.Log($"[PlayerNetwork] OnSteeringAngleSynced - Player {OwnerClientId}, IsOwner: {IsOwner}, old: {oldValue:F1}, new: {newValue:F1}");
-            
-            if (IsOwner) return;
-            if (_carController == null) return;
-            
-            _carController.ApplySyncedSteering(newValue);
-        }
-        
-        private void OnWheelRPMSynced(float oldValue, float newValue)
-        {
-            if (IsOwner) return;
-            if (_carController == null) return;
-            
-            _carController.ApplySyncedWheelRPM(newValue);
-        }
-        
-        private void OnDriftingStateSynced(bool oldValue, bool newValue)
-        {
-            Debug.Log($"[PlayerNetwork] OnDriftingStateSynced - Player {OwnerClientId}, old: {oldValue}, new: {newValue}");
-            
-            if (IsOwner) return;
-            if (_carController == null) return;
-            
-            _carController.SetDriftingState(newValue);
-        }
-        
-        private void OnTractionStateSynced(bool oldValue, bool newValue)
-        {
-            Debug.Log($"[PlayerNetwork] OnTractionStateSynced - Player {OwnerClientId}, old: {oldValue}, new: {newValue}");
-            
-            if (IsOwner) return;
-            if (_carController == null) return;
-            
-            _carController.SetTractionState(newValue);
-        }
-        
-        private void OnVelocitySynced(Vector3 oldValue, Vector3 newValue)
-        {
-            if (IsOwner) return;
-            if (_carController == null) return;
-            
-            _carController.ApplySyncedVelocity(newValue);
-        }
+        // ==================== OTHER NETWORK METHODS ====================
         
         private void OnSpawnPositionChanged(Vector3 oldValue, Vector3 newValue)
         {
@@ -435,34 +340,6 @@ namespace Multi.PR1
             }
         }
 
-        public override void OnNetworkDespawn()
-        {
-            PlayerColor.OnValueChanged -= OnColorChanged;
-            Health.OnValueChanged -= OnHealthChanged;
-            IsAlive.OnValueChanged -= OnIsAliveChanged;
-            Ammo.OnValueChanged -= OnAmmoChanged;
-            SpawnPosition.OnValueChanged -= OnSpawnPositionChanged;
-            SpawnRotation.OnValueChanged -= OnSpawnRotationChanged;
-            SkinIndex.OnValueChanged -= OnSkinIndexChanged;
-            
-            if (!IsOwner)
-            {
-                NetworkedSteeringAngle.OnValueChanged -= OnSteeringAngleSynced;
-                NetworkedWheelRPM.OnValueChanged -= OnWheelRPMSynced;
-                NetworkedIsDrifting.OnValueChanged -= OnDriftingStateSynced;
-                NetworkedIsTractionLocked.OnValueChanged -= OnTractionStateSynced;
-                NetworkedVelocity.OnValueChanged -= OnVelocitySynced;
-            }
-            
-            if (IsServer && PlayerSpawner.Instance != null)
-            {
-                PlayerSpawner.Instance.ReleaseSpawnPoint(OwnerClientId);
-            }
-            
-            if (_respawnCoroutine != null)
-                StopCoroutine(_respawnCoroutine);
-        }
-
         private void OnHealthChanged(int oldValue, int newValue)
         {
             Debug.Log($"[PlayerNetwork] OnHealthChanged - Player {OwnerClientId}, {oldValue} -> {newValue}");
@@ -551,12 +428,6 @@ namespace Multi.PR1
             if (_carController != null)
             {
                 _carController.ResetCarState();
-            }
-            
-            if (!IsServer)
-            {
-                SpawnPosition.Value = position;
-                SpawnRotation.Value = rotation;
             }
         }
 

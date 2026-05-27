@@ -62,7 +62,6 @@ namespace Multi.PR1
         [SerializeField] private Transform _shootPoint;
         [SerializeField] private KeyCode _shootKey = KeyCode.Mouse0;
 
-        // Car data
         [HideInInspector]
         public float carSpeed;
         [HideInInspector]
@@ -70,7 +69,6 @@ namespace Multi.PR1
         [HideInInspector]
         public bool isTractionLocked;
 
-        // Private variables
         private Rigidbody carRigidbody;
         private float steeringAxis;
         private float throttleAxis;
@@ -79,7 +77,6 @@ namespace Multi.PR1
         private float localVelocityX;
         private bool deceleratingCar;
 
-        // Friction curves storage
         private WheelFrictionCurve FLwheelFriction;
         private float FLWextremumSlip;
         private WheelFrictionCurve FRwheelFriction;
@@ -92,9 +89,16 @@ namespace Multi.PR1
         private float _lastShootTime;
         private float _shootCooldown = 0.5f;
         
-        // Для синхронизации визуала на клиентах
+        // Синхронизированные значения для не-владельцев
         private float _syncedSteeringAngle;
         private float _syncedWheelRPM;
+        private bool _syncedIsDrifting;
+        private bool _syncedIsTractionLocked;
+        private Vector3 _syncedVelocity;
+        private float _syncedCarSpeed;
+        
+        private float _lastSyncTime;
+        private float _syncRate = 0.066f; // ~15 раз в секунду
 
         private void Start()
         {
@@ -106,12 +110,16 @@ namespace Multi.PR1
                 _playerCamera = Camera.main;
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
+                
+                Debug.Log($"[CarController] Start - I AM OWNER! ClientId: {OwnerClientId}");
+            }
+            else
+            {
+                Debug.Log($"[CarController] Start - I am NOT owner. ClientId: {OwnerClientId}");
             }
 
             SetupCarPhysics();
             SetupSounds();
-            
-            Debug.Log($"[CarController] Start - Owner: {IsOwner}, ClientId: {OwnerClientId}");
         }
 
         private void SetupCarPhysics()
@@ -152,8 +160,14 @@ namespace Multi.PR1
 
         private void Update()
         {
-            if (!IsOwner) return;
+            if (!IsOwner) 
+            {
+                ApplySyncedVisuals();
+                return;
+            }
+            
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+            
             if (Cursor.lockState != CursorLockMode.Locked)
             {
                 HandleCursorUnlock();
@@ -162,6 +176,66 @@ namespace Multi.PR1
 
             HandleCarInput();
             HandleShooting();
+            
+            // Отправка состояния на сервер
+            if (Time.time - _lastSyncTime > _syncRate)
+            {
+                SendCarStateToServer();
+                _lastSyncTime = Time.time;
+            }
+        }
+        
+        /// <summary>
+        /// Отправка состояния машины на сервер через ClientRpc систему
+        /// </summary>
+        private void SendCarStateToServer()
+        {
+            if (!IsOwner) return;
+            if (_playerNetwork == null)
+            {
+                Debug.LogError($"[CarController] PlayerNetwork is NULL for owner {OwnerClientId}!");
+                return;
+            }
+            
+            float steering = GetCurrentSteeringAngle();
+            float rpm = GetAverageWheelRPM();
+            bool drifting = isDrifting;
+            bool traction = isTractionLocked;
+            Vector3 velocity = GetVelocity();
+            float speed = carSpeed;
+            
+            Debug.Log($"[CarController] Sending car state to server from owner {OwnerClientId}: steering={steering:F1}, drifting={drifting}");
+            
+            _playerNetwork.SendCarStateServerRpc(steering, rpm, drifting, traction, velocity, speed);
+        }
+        
+        /// <summary>
+        /// Применение синхронизированного состояния (вызывается из ClientRpc)
+        /// </summary>
+        public void ApplySyncedCarState(float steeringAngle, float wheelRPM, bool drifting, bool tractionLocked, Vector3 velocity, float speed)
+        {
+            if (IsOwner) return;
+            
+            _syncedSteeringAngle = steeringAngle;
+            _syncedWheelRPM = wheelRPM;
+            _syncedIsDrifting = drifting;
+            _syncedIsTractionLocked = tractionLocked;
+            _syncedVelocity = velocity;
+            _syncedCarSpeed = speed;
+            
+            Debug.Log($"[CarController] ApplySyncedCarState - Client {OwnerClientId}, steering={steeringAngle:F1}, drifting={drifting}");
+            
+            // Применяем физику для не-владельца
+            if (carRigidbody != null)
+            {
+                carRigidbody.linearVelocity = velocity;
+            }
+            
+            isDrifting = drifting;
+            isTractionLocked = tractionLocked;
+            carSpeed = speed;
+            
+            DriftCarPS();
         }
 
         private void HandleCursorUnlock()
@@ -288,30 +362,24 @@ namespace Multi.PR1
         private void LateUpdate()
         {
             if (!IsSpawned) return;
-            
             AnimateWheelMeshes();
             
             if (IsOwner)
             {
                 UpdateCamera();
             }
-            else
-            {
-                // Для не-владельцев - применяем синхронизированные значения
-                ApplySyncedVisuals();
-            }
         }
         
         private void ApplySyncedVisuals()
         {
-            // Применяем синхронизированный поворот колёс
+            // Применяем синхронизированный угол поворота колес
             if (_syncedSteeringAngle != 0)
             {
                 frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
                 frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
             }
             
-            // Применяем синхронизированное вращение колёс
+            // Применяем синхронизированное вращение колес
             if (_syncedWheelRPM != 0)
             {
                 float spinAngle = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
@@ -359,12 +427,12 @@ namespace Multi.PR1
 
             if ((isDrifting || isTractionLocked) && Mathf.Abs(carSpeed) > 12f)
             {
-                if (!tireScreechSound.isPlaying && IsOwner)
+                if (tireScreechSound != null && !tireScreechSound.isPlaying && IsOwner)
                     tireScreechSound.Play();
             }
             else
             {
-                if (tireScreechSound.isPlaying)
+                if (tireScreechSound != null && tireScreechSound.isPlaying)
                     tireScreechSound.Stop();
             }
         }
@@ -578,7 +646,6 @@ namespace Multi.PR1
             mesh.transform.rotation = rotation;
         }
 
-        // Публичные методы для синхронизации от PlayerNetwork
         public float GetCurrentSteeringAngle()
         {
             return frontLeftCollider != null ? frontLeftCollider.steerAngle : 0f;
@@ -595,51 +662,6 @@ namespace Multi.PR1
             return carRigidbody != null ? carRigidbody.linearVelocity : Vector3.zero;
         }
         
-        public void ApplySyncedSteering(float steeringAngle)
-        {
-            if (IsOwner) return;
-            _syncedSteeringAngle = steeringAngle;
-            Debug.Log($"[CarController] ApplySyncedSteering - Client {OwnerClientId}, angle: {steeringAngle}");
-        }
-        
-        public void ApplySyncedWheelRPM(float rpm)
-        {
-            if (IsOwner) return;
-            _syncedWheelRPM = rpm;
-        }
-        
-        public void SetDriftingState(bool drifting)
-        {
-            if (IsOwner) return;
-            isDrifting = drifting;
-            DriftCarPS();
-            Debug.Log($"[CarController] SetDriftingState - Client {OwnerClientId}, drifting: {drifting}");
-        }
-        
-        public void SetTractionState(bool tractionLocked)
-        {
-            if (IsOwner) return;
-            isTractionLocked = tractionLocked;
-            DriftCarPS();
-        }
-        
-        public void ApplySyncedVelocity(Vector3 velocity)
-        {
-            if (IsOwner) return;
-            
-            if (carRigidbody != null)
-            {
-                carRigidbody.linearVelocity = velocity;
-                carSpeed = velocity.magnitude * 3.6f;
-                
-                if (useSounds && carEngineSound != null)
-                {
-                    float engineSoundPitch = initialCarEngineSoundPitch + (velocity.magnitude / 25f);
-                    carEngineSound.pitch = engineSoundPitch;
-                }
-            }
-        }
-        
         public void ResetCarState()
         {
             steeringAxis = 0f;
@@ -650,6 +672,10 @@ namespace Multi.PR1
             isTractionLocked = false;
             _syncedSteeringAngle = 0f;
             _syncedWheelRPM = 0f;
+            _syncedIsDrifting = false;
+            _syncedIsTractionLocked = false;
+            _syncedVelocity = Vector3.zero;
+            _syncedCarSpeed = 0f;
             
             ResetSteeringAngle();
             

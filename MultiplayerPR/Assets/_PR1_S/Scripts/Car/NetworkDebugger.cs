@@ -27,7 +27,7 @@ namespace Multi.PR1
         {
             if (_playerNetwork == null) return;
             
-            Debug.Log($"[DEBUG] Player {OwnerClientId} - Steering: {_playerNetwork.NetworkedSteeringAngle.Value:F1}, Drifting: {_playerNetwork.NetworkedIsDrifting.Value}, RPM: {_playerNetwork.NetworkedWheelRPM.Value:F0}");
+            //Debug.Log($"[DEBUG] Player {OwnerClientId} - Steering: {_playerNetwork.NetworkedSteeringAngle.Value:F1}, Drifting: {_playerNetwork.NetworkedIsDrifting.Value}, RPM: {_playerNetwork.NetworkedWheelRPM.Value:F0}");
             
             if (_carController != null)
             {
@@ -47,9 +47,9 @@ namespace Multi.PR1
             _debugText.AppendLine($"IsServer: {IsServer}");
             _debugText.AppendLine($"");
             _debugText.AppendLine($"=== SYNC VALUES ===");
-            _debugText.AppendLine($"Steering: {_playerNetwork.NetworkedSteeringAngle.Value:F1}");
+            /*_debugText.AppendLine($"Steering: {_playerNetwork.NetworkedSteeringAngle.Value:F1}");
             _debugText.AppendLine($"Drifting: {_playerNetwork.NetworkedIsDrifting.Value}");
-            _debugText.AppendLine($"RPM: {_playerNetwork.NetworkedWheelRPM.Value:F0}");
+            _debugText.AppendLine($"RPM: {_playerNetwork.NetworkedWheelRPM.Value:F0}");*/
             _debugText.AppendLine($"");
             _debugText.AppendLine($"=== LOCAL VALUES ===");
             

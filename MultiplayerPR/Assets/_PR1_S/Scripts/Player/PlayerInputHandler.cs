@@ -16,12 +16,29 @@ namespace Multi.PR1
 
             if (_playerMovement == null)
                 _playerMovement = GetComponent<PlayerMovement>();
+                
+            // Автоматический поиск точки спавна пули, если не назначена
+            if (_bulletSpawnPoint == null)
+            {
+                GameObject spawnPointObj = GameObject.FindGameObjectWithTag("ShootPoint");
+                if (spawnPointObj != null)
+                    _bulletSpawnPoint = spawnPointObj.transform;
+                else
+                    Debug.LogWarning($"[PlayerInputHandler] Bullet spawn point not found for player {OwnerClientId}");
+            }
         }
 
-        // В методе Update добавьте проверку:
         private void Update()
         {
             if (!IsOwner) return;
+            
+            // Защита от NullReferenceException
+            if (_playerMovement == null)
+            {
+                _playerMovement = GetComponent<PlayerMovement>();
+                if (_playerMovement == null) return;
+            }
+            
             if (!_playerMovement.IsCursorLocked()) return;
             
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
@@ -33,10 +50,20 @@ namespace Multi.PR1
     
             if (Input.GetMouseButtonDown(0))
             {
-                Vector3 shootDirection =
-                    Input.GetMouseButton(1) ? _playerMovement.GetCameraForward() : transform.forward;
+                Vector3 shootDirection = Input.GetMouseButton(1) 
+                    ? _playerMovement.GetCameraForward() 
+                    : transform.forward;
 
-                _playerNetwork.ShootServerRpc(_bulletSpawnPoint.position, shootDirection);
+                if (_bulletSpawnPoint != null)
+                {
+                    _playerNetwork.ShootServerRpc(_bulletSpawnPoint.position, shootDirection);
+                }
+                else
+                {
+                    // Fallback: стреляем из позиции перед игроком
+                    Vector3 fallbackSpawnPos = transform.position + transform.forward * 2f + Vector3.up * 1f;
+                    _playerNetwork.ShootServerRpc(fallbackSpawnPos, shootDirection);
+                }
             }
         }
     }

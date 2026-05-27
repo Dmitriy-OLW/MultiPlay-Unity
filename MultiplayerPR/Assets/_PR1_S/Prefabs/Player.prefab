@@ -355,10 +355,10 @@ MonoBehaviour:
   maxSpeed: 190
   maxReverseSpeed: 60
   accelerationMultiplier: 6
-  maxSteeringAngle: 35
+  maxSteeringAngle: 45
   steeringSpeed: 0.5
   brakeForce: 450
-  decelerationMultiplier: 2
+  decelerationMultiplier: 3
   handbrakeDriftMultiplier: 5
   bodyMassCenter: {x: 0, y: 0, z: 0}
   frontLeftMesh: {fileID: 1261149847734685852}
