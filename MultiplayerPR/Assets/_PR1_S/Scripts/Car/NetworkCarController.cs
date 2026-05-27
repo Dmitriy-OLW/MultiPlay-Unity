@@ -56,11 +56,14 @@ namespace Multi.PR1
         public AudioSource tireScreechSound;
         private float initialCarEngineSoundPitch;
 
-        [Header("Combat - Network Integration")]
-        [SerializeField] private PlayerNetwork _playerNetwork;
-        [SerializeField] private Camera _playerCamera;
+        [Header("Combat")]
+        [SerializeField] private GameObject _bulletPrefab;
         [SerializeField] private Transform _shootPoint;
         [SerializeField] private KeyCode _shootKey = KeyCode.Mouse0;
+        [SerializeField] private float _shootCooldown = 0.5f;
+
+        [Header("Camera")]
+        [SerializeField] private CarCameraController _cameraController;
 
         [HideInInspector]
         public float carSpeed;
@@ -69,6 +72,7 @@ namespace Multi.PR1
         [HideInInspector]
         public bool isTractionLocked;
 
+        private PlayerNetwork _playerNetwork;
         private Rigidbody carRigidbody;
         private float steeringAxis;
         private float throttleAxis;
@@ -76,6 +80,7 @@ namespace Multi.PR1
         private float localVelocityZ;
         private float localVelocityX;
         private bool deceleratingCar;
+        private float _lastShootTime;
 
         private WheelFrictionCurve FLwheelFriction;
         private float FLWextremumSlip;
@@ -85,9 +90,6 @@ namespace Multi.PR1
         private float RLWextremumSlip;
         private WheelFrictionCurve RRwheelFriction;
         private float RRWextremumSlip;
-
-        private float _lastShootTime;
-        private float _shootCooldown = 0.5f;
         
         // Синхронизированные значения для не-владельцев
         private float _syncedSteeringAngle;
@@ -104,10 +106,20 @@ namespace Multi.PR1
         {
             if (_playerNetwork == null)
                 _playerNetwork = GetComponent<PlayerNetwork>();
-
+            
+            // Инициализация для владельца
             if (IsOwner)
             {
-                _playerCamera = Camera.main;
+                // Инициализация камеры
+                if (_cameraController == null)
+                {
+                    _cameraController = GetComponent<CarCameraController>();
+                    if (_cameraController == null)
+                    {
+                        _cameraController = gameObject.AddComponent<CarCameraController>();
+                    }
+                }
+                
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
                 
@@ -129,15 +141,22 @@ namespace Multi.PR1
             {
                 carRigidbody.centerOfMass = bodyMassCenter;
             }
+            else
+            {
+                Debug.LogWarning($"[CarController] Rigidbody not found on {gameObject.name}");
+            }
 
-            FLwheelFriction = frontLeftCollider.sidewaysFriction;
-            FLWextremumSlip = frontLeftCollider.sidewaysFriction.extremumSlip;
-            FRwheelFriction = frontRightCollider.sidewaysFriction;
-            FRWextremumSlip = frontRightCollider.sidewaysFriction.extremumSlip;
-            RLwheelFriction = rearLeftCollider.sidewaysFriction;
-            RLWextremumSlip = rearLeftCollider.sidewaysFriction.extremumSlip;
-            RRwheelFriction = rearRightCollider.sidewaysFriction;
-            RRWextremumSlip = rearRightCollider.sidewaysFriction.extremumSlip;
+            if (frontLeftCollider != null)
+            {
+                FLwheelFriction = frontLeftCollider.sidewaysFriction;
+                FLWextremumSlip = frontLeftCollider.sidewaysFriction.extremumSlip;
+                FRwheelFriction = frontRightCollider.sidewaysFriction;
+                FRWextremumSlip = frontRightCollider.sidewaysFriction.extremumSlip;
+                RLwheelFriction = rearLeftCollider.sidewaysFriction;
+                RLWextremumSlip = rearLeftCollider.sidewaysFriction.extremumSlip;
+                RRwheelFriction = rearRightCollider.sidewaysFriction;
+                RRWextremumSlip = rearRightCollider.sidewaysFriction.extremumSlip;
+            }
         }
 
         private void SetupSounds()
@@ -168,9 +187,32 @@ namespace Multi.PR1
             
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
             
+            // Управление курсором через Escape
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (_cameraController != null)
+                {
+                    _cameraController.ToggleCursorLock();
+                }
+                else
+                {
+                    // Fallback если камера не инициализирована
+                    if (Cursor.lockState == CursorLockMode.Locked)
+                    {
+                        Cursor.lockState = CursorLockMode.None;
+                        Cursor.visible = true;
+                    }
+                    else
+                    {
+                        Cursor.lockState = CursorLockMode.Locked;
+                        Cursor.visible = false;
+                    }
+                }
+            }
+            
+            // Если курсор не заблокирован - не обрабатываем управление машиной
             if (Cursor.lockState != CursorLockMode.Locked)
             {
-                HandleCursorUnlock();
                 return;
             }
 
@@ -204,8 +246,6 @@ namespace Multi.PR1
             Vector3 velocity = GetVelocity();
             float speed = carSpeed;
             
-            Debug.Log($"[CarController] Sending car state to server from owner {OwnerClientId}: steering={steering:F1}, drifting={drifting}");
-            
             _playerNetwork.SendCarStateServerRpc(steering, rpm, drifting, traction, velocity, speed);
         }
         
@@ -223,8 +263,6 @@ namespace Multi.PR1
             _syncedVelocity = velocity;
             _syncedCarSpeed = speed;
             
-            Debug.Log($"[CarController] ApplySyncedCarState - Client {OwnerClientId}, steering={steeringAngle:F1}, drifting={drifting}");
-            
             // Применяем физику для не-владельца
             if (carRigidbody != null)
             {
@@ -236,15 +274,6 @@ namespace Multi.PR1
             carSpeed = speed;
             
             DriftCarPS();
-        }
-
-        private void HandleCursorUnlock()
-        {
-            if (Input.GetKeyDown(KeyCode.BackQuote))
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
         }
 
         private void HandleCarInput()
@@ -300,9 +329,13 @@ namespace Multi.PR1
 
         private void HandleShooting()
         {
-            if (_playerCamera == null) return;
             if (_playerNetwork == null) return;
             if (!_playerNetwork.IsAlive.Value) return;
+            if (_bulletPrefab == null)
+            {
+                Debug.LogWarning("[CarController] Bullet prefab not assigned!");
+                return;
+            }
 
             if (Input.GetKeyDown(_shootKey))
             {
@@ -312,49 +345,59 @@ namespace Multi.PR1
 
         private void TryShoot()
         {
-            Ray ray = _playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
-
-            if (Physics.Raycast(ray, out RaycastHit hit, 100f))
-            {
-                PlayerNetwork targetPlayer = hit.collider.GetComponentInParent<PlayerNetwork>();
-
-                if (targetPlayer != null && targetPlayer != _playerNetwork)
-                {
-                    ShootServerRpc(targetPlayer.NetworkObjectId);
-                }
-            }
+            Camera playerCamera = Camera.main;
+            if (playerCamera == null) return;
+            
+            // Получаем направление от центра экрана (прицел)
+            Ray ray = playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
+            
+            Vector3 shootDirection = ray.direction;
+            Vector3 shootPosition = _shootPoint != null ? _shootPoint.position : transform.position + transform.forward * 2f;
+            
+            // Отправляем на сервер
+            ShootServerRpc(shootPosition, shootDirection);
         }
 
         [ServerRpc]
-        private void ShootServerRpc(ulong targetObjectId)
+        private void ShootServerRpc(Vector3 spawnPos, Vector3 direction)
         {
             if (!_playerNetwork.IsAlive.Value) return;
             if (Time.time < _lastShootTime + _shootCooldown) return;
-
+            
             _lastShootTime = Time.time;
 
-            if (NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(targetObjectId, out NetworkObject targetObject))
+            // Создаем пулю из префаба
+            GameObject bullet = Instantiate(_bulletPrefab, spawnPos, Quaternion.LookRotation(direction));
+            BulletNetwork bulletScript = bullet.GetComponent<BulletNetwork>();
+            if (bulletScript != null)
             {
-                PlayerNetwork targetPlayer = targetObject.GetComponent<PlayerNetwork>();
-                if (targetPlayer != null && targetPlayer != _playerNetwork)
-                {
-                    targetPlayer.TakeDamage(25, OwnerClientId);
-                    Debug.Log($"[CarController] Car {OwnerClientId} shot {targetObjectId}");
-                }
+                bulletScript.OwnerId = OwnerClientId;
             }
+            
+            bullet.GetComponent<NetworkObject>().Spawn();
+            
+            Debug.Log($"[CarController] Player {OwnerClientId} shot from car");
         }
 
         private void UpdateCarData()
         {
-            carSpeed = (2 * Mathf.PI * frontLeftCollider.radius * frontLeftCollider.rpm * 60) / 1000;
-            localVelocityX = transform.InverseTransformDirection(carRigidbody.linearVelocity).x;
-            localVelocityZ = transform.InverseTransformDirection(carRigidbody.linearVelocity).z;
+            if (frontLeftCollider != null)
+            {
+                carSpeed = (2 * Mathf.PI * frontLeftCollider.radius * frontLeftCollider.rpm * 60) / 1000;
+            }
+            
+            if (carRigidbody != null)
+            {
+                localVelocityX = transform.InverseTransformDirection(carRigidbody.linearVelocity).x;
+                localVelocityZ = transform.InverseTransformDirection(carRigidbody.linearVelocity).z;
+            }
         }
 
         private void FixedUpdate()
         {
             if (!IsOwner) return;
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+            if (carRigidbody == null) return;
             
             ApplyMotorTorque();
         }
@@ -363,17 +406,12 @@ namespace Multi.PR1
         {
             if (!IsSpawned) return;
             AnimateWheelMeshes();
-            
-            if (IsOwner)
-            {
-                UpdateCamera();
-            }
         }
         
         private void ApplySyncedVisuals()
         {
             // Применяем синхронизированный угол поворота колес
-            if (_syncedSteeringAngle != 0)
+            if (frontLeftCollider != null && _syncedSteeringAngle != 0)
             {
                 frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
                 frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
@@ -395,15 +433,6 @@ namespace Multi.PR1
             }
         }
 
-        private void UpdateCamera()
-        {
-            if (_playerCamera == null || !IsOwner) return;
-
-            Vector3 targetPosition = transform.position + transform.forward * -5f + Vector3.up * 3f;
-            _playerCamera.transform.position = Vector3.Lerp(_playerCamera.transform.position, targetPosition, Time.deltaTime * 8f);
-            _playerCamera.transform.LookAt(transform.position + Vector3.up * 1.5f);
-        }
-
         public void CarSpeedUI()
         {
             if (useUI && carSpeedText != null && IsOwner)
@@ -415,6 +444,7 @@ namespace Multi.PR1
         public void CarSounds()
         {
             if (!useSounds) return;
+            if (carRigidbody == null) return;
 
             if (carEngineSound != null)
             {
@@ -459,6 +489,8 @@ namespace Multi.PR1
 
         private void ApplySteeringAngle()
         {
+            if (frontLeftCollider == null || frontRightCollider == null) return;
+            
             float steeringAngle = steeringAxis * maxSteeringAngle;
             frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, steeringAngle, steeringSpeed);
             frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, steeringAngle, steeringSpeed);
@@ -485,6 +517,8 @@ namespace Multi.PR1
 
         public void DecelerateCar()
         {
+            if (carRigidbody == null) return;
+            
             isDrifting = Mathf.Abs(localVelocityX) > 2.5f;
             DriftCarPS();
 
@@ -500,6 +534,8 @@ namespace Multi.PR1
 
         public void Brakes()
         {
+            if (frontLeftCollider == null) return;
+            
             frontLeftCollider.brakeTorque = brakeForce;
             frontRightCollider.brakeTorque = brakeForce;
             rearLeftCollider.brakeTorque = brakeForce;
@@ -535,6 +571,8 @@ namespace Multi.PR1
 
         private void UpdateDriftFriction()
         {
+            if (frontLeftCollider == null) return;
+            
             float driftValue = FLWextremumSlip * handbrakeDriftMultiplier * driftingAxis;
 
             FLwheelFriction.extremumSlip = driftValue;
@@ -552,6 +590,8 @@ namespace Multi.PR1
 
         private void ResetFrictionToDefault()
         {
+            if (frontLeftCollider == null) return;
+            
             FLwheelFriction.extremumSlip = FLWextremumSlip;
             frontLeftCollider.sidewaysFriction = FLwheelFriction;
 
@@ -567,6 +607,8 @@ namespace Multi.PR1
 
         private void ApplyMotorTorque()
         {
+            if (frontLeftCollider == null) return;
+            
             if (localVelocityZ < -1f && throttleAxis > 0f)
             {
                 Brakes();
@@ -711,6 +753,12 @@ namespace Multi.PR1
             }
             
             ResetFrictionToDefault();
+            
+            // Сброс углов камеры
+            if (_cameraController != null && IsOwner)
+            {
+                _cameraController.ResetCameraAngles();
+            }
             
             Debug.Log($"[CarController] ResetCarState - Client {OwnerClientId}");
         }
