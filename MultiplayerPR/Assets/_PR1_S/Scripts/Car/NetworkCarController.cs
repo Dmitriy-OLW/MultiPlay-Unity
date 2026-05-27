@@ -1,7 +1,7 @@
 ﻿using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
-using System.Collections;
+using System;
 
 namespace Multi.PR1
 {
@@ -54,7 +54,7 @@ namespace Multi.PR1
         public bool useSounds = false;
         public AudioSource carEngineSound;
         public AudioSource tireScreechSound;
-        float initialCarEngineSoundPitch;
+        private float initialCarEngineSoundPitch;
 
         [Header("Combat - Network Integration")]
         [SerializeField] private PlayerNetwork _playerNetwork;
@@ -91,6 +91,10 @@ namespace Multi.PR1
 
         private float _lastShootTime;
         private float _shootCooldown = 0.5f;
+        
+        // Для синхронизации визуала на клиентах
+        private float _syncedSteeringAngle;
+        private float _syncedWheelRPM;
 
         private void Start()
         {
@@ -106,43 +110,10 @@ namespace Multi.PR1
 
             SetupCarPhysics();
             SetupSounds();
+            
+            Debug.Log($"[CarController] Start - Owner: {IsOwner}, ClientId: {OwnerClientId}");
         }
 
-        // Добавьте этот метод в NetworkCarController
-        public override void OnNetworkSpawn()
-        {
-            base.OnNetworkSpawn();
-    
-            if (!IsOwner && _playerNetwork != null)
-            {
-                StartCoroutine(WaitAndApplyPosition());
-            }
-        }
-
-        private IEnumerator WaitAndApplyPosition()
-        {
-            yield return new WaitForSeconds(0.1f);
-    
-            if (_playerNetwork != null)
-            {
-                if (_playerNetwork.SpawnPosition.Value != Vector3.zero)
-                {
-                    transform.position = _playerNetwork.SpawnPosition.Value;
-                    transform.rotation = _playerNetwork.SpawnRotation.Value;
-            
-                    // Сбрасываем физику
-                    Rigidbody rb = GetComponent<Rigidbody>();
-                    if (rb != null)
-                    {
-                        rb.linearVelocity = Vector3.zero;
-                        rb.angularVelocity = Vector3.zero;
-                    }
-            
-                    Debug.Log($"[Car] Applied position: {transform.position}, rotation: {transform.rotation.eulerAngles}");
-                }
-            }
-        }
-        
         private void SetupCarPhysics()
         {
             carRigidbody = GetComponent<Rigidbody>();
@@ -151,7 +122,6 @@ namespace Multi.PR1
                 carRigidbody.centerOfMass = bodyMassCenter;
             }
 
-            // Save default friction values
             FLwheelFriction = frontLeftCollider.sidewaysFriction;
             FLWextremumSlip = frontLeftCollider.sidewaysFriction.extremumSlip;
             FRwheelFriction = frontRightCollider.sidewaysFriction;
@@ -183,9 +153,7 @@ namespace Multi.PR1
         private void Update()
         {
             if (!IsOwner) return;
-
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
-
             if (Cursor.lockState != CursorLockMode.Locked)
             {
                 HandleCursorUnlock();
@@ -207,7 +175,6 @@ namespace Multi.PR1
 
         private void HandleCarInput()
         {
-            // Throttle / Reverse
             if (Input.GetKey(KeyCode.W))
             {
                 CancelInvoke("DecelerateCar");
@@ -230,7 +197,6 @@ namespace Multi.PR1
                 }
             }
 
-            // Steering
             if (Input.GetKey(KeyCode.A))
             {
                 TurnLeft();
@@ -244,7 +210,6 @@ namespace Multi.PR1
                 ResetSteeringAngle();
             }
 
-            // Handbrake
             if (Input.GetKey(KeyCode.Space))
             {
                 CancelInvoke("DecelerateCar");
@@ -300,7 +265,7 @@ namespace Multi.PR1
                 if (targetPlayer != null && targetPlayer != _playerNetwork)
                 {
                     targetPlayer.TakeDamage(25, OwnerClientId);
-                    Debug.Log($"[Server] Car {OwnerClientId} shot {targetObjectId}");
+                    Debug.Log($"[CarController] Car {OwnerClientId} shot {targetObjectId}");
                 }
             }
         }
@@ -315,22 +280,58 @@ namespace Multi.PR1
         private void FixedUpdate()
         {
             if (!IsOwner) return;
+            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+            
             ApplyMotorTorque();
         }
 
         private void LateUpdate()
         {
             if (!IsSpawned) return;
+            
             AnimateWheelMeshes();
-            UpdateCamera();
+            
+            if (IsOwner)
+            {
+                UpdateCamera();
+            }
+            else
+            {
+                // Для не-владельцев - применяем синхронизированные значения
+                ApplySyncedVisuals();
+            }
+        }
+        
+        private void ApplySyncedVisuals()
+        {
+            // Применяем синхронизированный поворот колёс
+            if (_syncedSteeringAngle != 0)
+            {
+                frontLeftCollider.steerAngle = Mathf.Lerp(frontLeftCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
+                frontRightCollider.steerAngle = Mathf.Lerp(frontRightCollider.steerAngle, _syncedSteeringAngle, Time.deltaTime * 15f);
+            }
+            
+            // Применяем синхронизированное вращение колёс
+            if (_syncedWheelRPM != 0)
+            {
+                float spinAngle = _syncedWheelRPM * 360f * Time.deltaTime / 60f;
+                
+                if (frontLeftMesh != null)
+                    frontLeftMesh.transform.Rotate(Vector3.right, spinAngle);
+                if (frontRightMesh != null)
+                    frontRightMesh.transform.Rotate(Vector3.right, spinAngle);
+                if (rearLeftMesh != null)
+                    rearLeftMesh.transform.Rotate(Vector3.right, spinAngle);
+                if (rearRightMesh != null)
+                    rearRightMesh.transform.Rotate(Vector3.right, spinAngle);
+            }
         }
 
         private void UpdateCamera()
         {
             if (_playerCamera == null || !IsOwner) return;
-    
-            // Камера следует за машиной с учетом её ротации
-            Vector3 targetPosition = transform.position - transform.forward * 5f + Vector3.up * 3f;
+
+            Vector3 targetPosition = transform.position + transform.forward * -5f + Vector3.up * 3f;
             _playerCamera.transform.position = Vector3.Lerp(_playerCamera.transform.position, targetPosition, Time.deltaTime * 8f);
             _playerCamera.transform.LookAt(transform.position + Vector3.up * 1.5f);
         }
@@ -577,38 +578,87 @@ namespace Multi.PR1
             mesh.transform.rotation = rotation;
         }
 
-        public Vector3 GetCameraForward()
+        // Публичные методы для синхронизации от PlayerNetwork
+        public float GetCurrentSteeringAngle()
         {
-            return _playerCamera != null ? _playerCamera.transform.forward : transform.forward;
+            return frontLeftCollider != null ? frontLeftCollider.steerAngle : 0f;
         }
-
-        public bool IsCursorLocked()
+        
+        public float GetAverageWheelRPM()
         {
-            return Cursor.lockState == CursorLockMode.Locked;
+            if (frontLeftCollider == null) return 0f;
+            return (frontLeftCollider.rpm + frontRightCollider.rpm + rearLeftCollider.rpm + rearRightCollider.rpm) / 4f;
         }
-
-        // Добавленный метод для сброса состояния машины при респавне
+        
+        public Vector3 GetVelocity()
+        {
+            return carRigidbody != null ? carRigidbody.linearVelocity : Vector3.zero;
+        }
+        
+        public void ApplySyncedSteering(float steeringAngle)
+        {
+            if (IsOwner) return;
+            _syncedSteeringAngle = steeringAngle;
+            Debug.Log($"[CarController] ApplySyncedSteering - Client {OwnerClientId}, angle: {steeringAngle}");
+        }
+        
+        public void ApplySyncedWheelRPM(float rpm)
+        {
+            if (IsOwner) return;
+            _syncedWheelRPM = rpm;
+        }
+        
+        public void SetDriftingState(bool drifting)
+        {
+            if (IsOwner) return;
+            isDrifting = drifting;
+            DriftCarPS();
+            Debug.Log($"[CarController] SetDriftingState - Client {OwnerClientId}, drifting: {drifting}");
+        }
+        
+        public void SetTractionState(bool tractionLocked)
+        {
+            if (IsOwner) return;
+            isTractionLocked = tractionLocked;
+            DriftCarPS();
+        }
+        
+        public void ApplySyncedVelocity(Vector3 velocity)
+        {
+            if (IsOwner) return;
+            
+            if (carRigidbody != null)
+            {
+                carRigidbody.linearVelocity = velocity;
+                carSpeed = velocity.magnitude * 3.6f;
+                
+                if (useSounds && carEngineSound != null)
+                {
+                    float engineSoundPitch = initialCarEngineSoundPitch + (velocity.magnitude / 25f);
+                    carEngineSound.pitch = engineSoundPitch;
+                }
+            }
+        }
+        
         public void ResetCarState()
         {
-            // Сброс управления
             steeringAxis = 0f;
             throttleAxis = 0f;
             driftingAxis = 0f;
             deceleratingCar = false;
             isDrifting = false;
             isTractionLocked = false;
+            _syncedSteeringAngle = 0f;
+            _syncedWheelRPM = 0f;
             
-            // Сброс колес
             ResetSteeringAngle();
             
-            // Сброс физики
             if (carRigidbody != null)
             {
                 carRigidbody.linearVelocity = Vector3.zero;
                 carRigidbody.angularVelocity = Vector3.zero;
             }
             
-            // Сброс WheelColliders
             if (frontLeftCollider != null)
             {
                 frontLeftCollider.motorTorque = 0;
@@ -634,10 +684,9 @@ namespace Multi.PR1
                 rearRightCollider.steerAngle = 0;
             }
             
-            // Сброс фрикций до стандартных
             ResetFrictionToDefault();
             
-            Debug.Log($"[Car] Reset state for {OwnerClientId}");
+            Debug.Log($"[CarController] ResetCarState - Client {OwnerClientId}");
         }
     }
 }

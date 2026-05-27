@@ -17,6 +17,7 @@ GameObject:
   - component: {fileID: 5935825219246852585}
   - component: {fileID: 2720708859901552727}
   - component: {fileID: 5154350328323234169}
+  - component: {fileID: 9183074568484166477}
   m_Layer: 6
   m_Name: Player
   m_TagString: Untagged
@@ -254,6 +255,36 @@ MonoBehaviour:
       MinSecondsBetweenUpdates: 0
       MaxSecondsBetweenUpdates: 0
     m_InternalValue: -1
+  NetworkedCarSpeed:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 0
+  NetworkedSteeringAngle:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 0
+  NetworkedWheelRPM:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 0
+  NetworkedIsDrifting:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 0
+  NetworkedIsTractionLocked:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 0
+  NetworkedVelocity:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: {x: 0, y: 0, z: 0}
   _bulletPrefab: {fileID: 1094578691025535636, guid: 6639c2923f822564db86982646ef56fb, type: 3}
   _shootCooldown: 1
   _respawnDelay: 3
@@ -271,6 +302,7 @@ MonoBehaviour:
   - {fileID: 1400307124720120771}
   - {fileID: 6432775899285909981}
   _disableDefaultRenderer: 1
+  _syncRate: 0.05
   _spawnPoints: []
 --- !u!114 &5935825219246852585
 MonoBehaviour:
@@ -354,6 +386,21 @@ MonoBehaviour:
   carSpeed: 0
   isDrifting: 0
   isTractionLocked: 0
+--- !u!114 &9183074568484166477
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 362549746377435639}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6e70dbfefdc743119ec3d3473d60a814, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ShowTopMostFoldoutHeaderGroup: 1
+  _showGUI: 1
+  _guiPosition: {x: 10, y: 10}
 --- !u!1 &648053486376607721
 GameObject:
   m_ObjectHideFlags: 0
