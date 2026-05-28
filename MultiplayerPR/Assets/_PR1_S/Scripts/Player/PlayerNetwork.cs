@@ -646,7 +646,7 @@ namespace Multi.PR1
                         PlayerNetwork shooter = shooterClient.PlayerObject.GetComponent<PlayerNetwork>();
                         if (shooter != null && shooter != this)
                         {
-                            shooter.Score.Value += 1;
+                            shooter.Score.Value += 5;
                             Debug.Log($"[PlayerNetwork] Player {shooterId} scored! Total: {shooter.Score.Value}");
                         }
                     }
