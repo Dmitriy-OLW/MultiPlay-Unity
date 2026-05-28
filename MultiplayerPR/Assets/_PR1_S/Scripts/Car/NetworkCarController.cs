@@ -55,13 +55,13 @@ namespace Multi.PR1
         public bool useSounds = false;
         public AudioSource carEngineSound;
         public AudioSource tireScreechSound;
+        [Header("Collision Sound")]
+        public AudioSource collisionSound;
+        public float minCollisionVolume = 0.5f;
+        public float maxCollisionVolume = 1f;
+        public float minCollisionSpeed = 50f;  // км/ч
+        public float maxCollisionSpeed = 100f; // км/ч
         private float initialCarEngineSoundPitch;
-
-        [Header("Combat")]
-        [SerializeField] private GameObject _bulletPrefab;
-        [SerializeField] private Transform _shootPoint;
-        [SerializeField] private KeyCode _shootKey = KeyCode.Mouse0;
-        [SerializeField] private float _shootCooldown = 0.5f;
 
         [Header("Camera")]
         [SerializeField] private CarCameraController _cameraController;
@@ -76,6 +76,9 @@ namespace Multi.PR1
         [SerializeField] private KeyCode _respawnKey = KeyCode.R;
         [SerializeField] private float _respawnCooldown = 3f;
         [SerializeField] private float _respawnHeightOffset = 3f;
+        
+        [Header("Self Kill")]
+        [SerializeField] private KeyCode _selfKillKey = KeyCode.K;
         
         [Header("Collision")]
         [SerializeField] private float _collisionCooldown = 0.5f;
@@ -95,15 +98,10 @@ namespace Multi.PR1
         private float localVelocityZ;
         private float localVelocityX;
         private bool deceleratingCar;
-        private float _lastShootTime;
-        private float _startupTimer = 0f;
-        private bool _isInterpolationEnabled = false;
-        
         private float _lastCollisionTime;
         private float _lastRespawnTime;
-        
-        private float _lastDamageSyncTime;
-        private float _damageSyncRate = 0.1f;
+        private float _startupTimer = 0f;
+        private bool _isInterpolationEnabled = false;
 
         private WheelFrictionCurve FLwheelFriction;
         private float FLWextremumSlip;
@@ -201,12 +199,12 @@ namespace Multi.PR1
 
             if (useUI)
             {
-                InvokeRepeating("CarSpeedUI", 0f, 0.1f);
+                InvokeRepeating(nameof(CarSpeedUI), 0f, 0.1f);
             }
 
             if (useSounds && IsOwner)
             {
-                InvokeRepeating("CarSounds", 0f, 0.1f);
+                InvokeRepeating(nameof(CarSounds), 0f, 0.1f);
             }
         }
 
@@ -245,14 +243,35 @@ namespace Multi.PR1
             }
 
             HandleCarInput();
-            HandleShooting();
             HandleRespawn();
+            HandleSelfKill();
             
             if (Time.time - _lastSyncTime > _syncRate)
             {
                 SendCarStateToServer();
                 _lastSyncTime = Time.time;
             }
+        }
+        
+        private void HandleSelfKill()
+        {
+            if (Input.GetKeyDown(_selfKillKey))
+            {
+                Debug.Log($"[CarController] Player {OwnerClientId} requested self kill");
+                SelfKillServerRpc();
+            }
+        }
+        
+        [ServerRpc]
+        private void SelfKillServerRpc()
+        {
+            if (_playerNetwork == null) return;
+            if (!_playerNetwork.IsAlive.Value) return;
+            
+            Debug.Log($"[Server] Player {OwnerClientId} self killed");
+            
+            // Наносим урон равный текущему здоровью (убиваем)
+            _playerNetwork.TakeDamage(_playerNetwork.Health.Value, OwnerClientId);
         }
         
         private void HandleRespawn()
@@ -370,7 +389,7 @@ namespace Multi.PR1
             
             if (useUI && carSpeedText != null)
             {
-                carSpeedText.text = Mathf.RoundToInt(Mathf.Abs(speed)).ToString();
+                carSpeedText.text = $"Speed: {Mathf.RoundToInt(Mathf.Abs(speed))} km/h";
             }
         }
 
@@ -378,13 +397,13 @@ namespace Multi.PR1
         {
             if (Input.GetKey(KeyCode.W))
             {
-                CancelInvoke("DecelerateCar");
+                CancelInvoke(nameof(DecelerateCar));
                 deceleratingCar = false;
                 GoForward();
             }
             else if (Input.GetKey(KeyCode.S))
             {
-                CancelInvoke("DecelerateCar");
+                CancelInvoke(nameof(DecelerateCar));
                 deceleratingCar = false;
                 GoReverse();
             }
@@ -393,7 +412,7 @@ namespace Multi.PR1
                 ThrottleOff();
                 if (!deceleratingCar)
                 {
-                    InvokeRepeating("DecelerateCar", 0f, 0.1f);
+                    InvokeRepeating(nameof(DecelerateCar), 0f, 0.1f);
                     deceleratingCar = true;
                 }
             }
@@ -413,7 +432,7 @@ namespace Multi.PR1
 
             if (Input.GetKey(KeyCode.Space))
             {
-                CancelInvoke("DecelerateCar");
+                CancelInvoke(nameof(DecelerateCar));
                 deceleratingCar = false;
                 Handbrake();
             }
@@ -423,47 +442,6 @@ namespace Multi.PR1
             }
 
             UpdateCarData();
-        }
-
-        private void HandleShooting()
-        {
-            if (_playerNetwork == null) return;
-            if (!_playerNetwork.IsAlive.Value) return;
-            if (_bulletPrefab == null) return;
-
-            if (Input.GetKeyDown(_shootKey))
-            {
-                TryShoot();
-            }
-        }
-
-        private void TryShoot()
-        {
-            Camera playerCamera = Camera.main;
-            if (playerCamera == null) return;
-            
-            Ray ray = playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
-            Vector3 shootPosition = _shootPoint != null ? _shootPoint.position : transform.position + transform.forward * 2f;
-            
-            ShootServerRpc(shootPosition, ray.direction);
-        }
-
-        [ServerRpc]
-        private void ShootServerRpc(Vector3 spawnPos, Vector3 direction)
-        {
-            if (!_playerNetwork.IsAlive.Value) return;
-            if (Time.time < _lastShootTime + _shootCooldown) return;
-            
-            _lastShootTime = Time.time;
-
-            GameObject bullet = Instantiate(_bulletPrefab, spawnPos, Quaternion.LookRotation(direction));
-            BulletNetwork bulletScript = bullet.GetComponent<BulletNetwork>();
-            if (bulletScript != null)
-            {
-                bulletScript.OwnerId = OwnerClientId;
-            }
-            
-            bullet.GetComponent<NetworkObject>().Spawn();
         }
 
         private void UpdateCarData()
@@ -519,9 +497,27 @@ namespace Multi.PR1
                 
                 Debug.Log($"[CarController] Collision! Speed: {speedKmh:F1} km/h, Calculated Damage: {damage}");
                 
+                // Воспроизводим звук столкновения на клиенте
+                PlayCollisionSoundClientRpc(speedKmh);
+                
                 // Отправляем урон на сервер
                 SendCollisionDamageServerRpc(damage);
             }
+        }
+        
+        [ClientRpc]
+        private void PlayCollisionSoundClientRpc(float speedKmh)
+        {
+            if (collisionSound == null) return;
+            
+            // Расчёт громкости: от 0.5 при 50 км/ч до 1.0 при 100+ км/ч
+            float volumePercent = Mathf.Clamp01((speedKmh - minCollisionSpeed) / (maxCollisionSpeed - minCollisionSpeed));
+            float volume = minCollisionVolume + volumePercent * (maxCollisionVolume - minCollisionVolume);
+            
+            collisionSound.volume = volume;
+            collisionSound.Play();
+            
+            Debug.Log($"[CarController] Playing collision sound with volume: {volume:F2} (speed: {speedKmh:F1} km/h)");
         }
         
         [ServerRpc]
@@ -612,7 +608,7 @@ namespace Multi.PR1
         {
             if (useUI && carSpeedText != null && IsOwner)
             {
-                carSpeedText.text = Mathf.RoundToInt(Mathf.Abs(carSpeed)).ToString();
+                carSpeedText.text = $"Speed: {Mathf.RoundToInt(Mathf.Abs(carSpeed))} km/h";
             }
         }
 
@@ -703,7 +699,7 @@ namespace Multi.PR1
             if (carRigidbody.linearVelocity.magnitude < 0.25f)
             {
                 carRigidbody.linearVelocity = Vector3.zero;
-                CancelInvoke("DecelerateCar");
+                CancelInvoke(nameof(DecelerateCar));
             }
         }
 
@@ -719,7 +715,7 @@ namespace Multi.PR1
 
         public void Handbrake()
         {
-            CancelInvoke("RecoverTraction");
+            CancelInvoke(nameof(RecoverTraction));
             driftingAxis = Mathf.Min(driftingAxis + Time.deltaTime, 1f);
             isDrifting = Mathf.Abs(localVelocityX) > 2.5f;
             isTractionLocked = true;
@@ -740,7 +736,7 @@ namespace Multi.PR1
             }
             else
             {
-                Invoke("RecoverTraction", Time.deltaTime);
+                Invoke(nameof(RecoverTraction), Time.deltaTime);
             }
         }
 
