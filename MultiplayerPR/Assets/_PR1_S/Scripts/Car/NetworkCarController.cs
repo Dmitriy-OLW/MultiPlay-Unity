@@ -1,4 +1,4 @@
-﻿﻿using Unity.Netcode;
+﻿using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
 using System;
@@ -67,8 +67,8 @@ namespace Multi.PR1
         
         [Header("Collision Damage")]
         [SerializeField] private float _damageMultiplier = 0.1f;
-        [SerializeField] private float _minDamageSpeed = 10f;
-        [SerializeField] private float _maxDamageSpeed = 100f;
+        [SerializeField] private float _minDamageSpeed = 10f; // 10 км/ч
+        [SerializeField] private float _maxDamageSpeed = 100f; // 100 км/ч
         [SerializeField] private int _maxDamage = 50;
         
         [Header("Respawn")]
@@ -100,6 +100,9 @@ namespace Multi.PR1
         
         private float _lastCollisionTime;
         private float _lastRespawnTime;
+        
+        private float _lastDamageSyncTime;
+        private float _damageSyncRate = 0.1f;
 
         private WheelFrictionCurve FLwheelFriction;
         private float FLWextremumSlip;
@@ -267,22 +270,17 @@ namespace Multi.PR1
         {
             if (carRigidbody == null) return;
             
-            // Сброс позиции - поднимаем на 3 метра вверх
             Vector3 respawnPosition = transform.position;
             respawnPosition.y += _respawnHeightOffset;
             
-            // Сброс углов до нуля
             Quaternion respawnRotation = Quaternion.identity;
             
-            // Применяем телепортацию
             transform.position = respawnPosition;
             transform.rotation = respawnRotation;
             
-            // Сброс физики
             carRigidbody.linearVelocity = Vector3.zero;
             carRigidbody.angularVelocity = Vector3.zero;
             
-            // Сброс состояния колёс
             if (frontLeftCollider != null)
             {
                 frontLeftCollider.motorTorque = 0;
@@ -308,14 +306,12 @@ namespace Multi.PR1
                 rearRightCollider.steerAngle = 0;
             }
             
-            // Сброс управляющих переменных
             steeringAxis = 0f;
             throttleAxis = 0f;
             driftingAxis = 0f;
             isDrifting = false;
             isTractionLocked = false;
             
-            // Сброс трения
             ResetFrictionToDefault();
             
             Debug.Log($"[CarController] Car respawned at {respawnPosition}");
@@ -502,36 +498,41 @@ namespace Multi.PR1
         
         private void OnCollisionEnter(Collision collision)
         {
-            if (!IsServer) return;
-            if (_playerNetwork == null) return;
-            if (!_playerNetwork.IsAlive.Value) return;
-            
             // Проверяем кулдаун столкновения
             if (Time.time - _lastCollisionTime < _collisionCooldown) return;
             
-            // Получаем скорость столкновения
-            float collisionSpeed = collision.relativeVelocity.magnitude;
+            // Получаем скорость столкновения в м/с
+            float collisionSpeedMS = collision.relativeVelocity.magnitude;
             
-            // Скорость в км/ч для наглядности
-            float speedKmh = collisionSpeed * 3.6f;
+            // Переводим в км/ч для удобства расчёта
+            float speedKmh = collisionSpeedMS * 3.6f;
             
             if (speedKmh >= _minDamageSpeed)
             {
                 _lastCollisionTime = Time.time;
                 
                 // Расчёт урона: линейная зависимость от скорости
-                // При 10 км/ч -> 1 урон, при 100 км/ч -> 10 урон (максимум)
                 float damagePercent = Mathf.Clamp01((speedKmh - _minDamageSpeed) / (_maxDamageSpeed - _minDamageSpeed));
                 int damage = Mathf.RoundToInt(damagePercent * _maxDamage);
-                
-                // Минимум 1 урон, если превысили порог
                 damage = Mathf.Max(1, damage);
                 
-                Debug.Log($"[CarController] Collision! Speed: {speedKmh:F1} km/h, Damage: {damage}");
+                Debug.Log($"[CarController] Collision! Speed: {speedKmh:F1} km/h, Calculated Damage: {damage}");
                 
-                // Наносим урон от столкновения (урон самому себе)
-                _playerNetwork.TakeDamage(damage, OwnerClientId);
+                // Отправляем урон на сервер
+                SendCollisionDamageServerRpc(damage);
             }
+        }
+        
+        [ServerRpc]
+        private void SendCollisionDamageServerRpc(int damage)
+        {
+            if (_playerNetwork == null) return;
+            if (!_playerNetwork.IsAlive.Value) return;
+            
+            Debug.Log($"[Server] Applying collision damage {damage} to player {OwnerClientId}");
+            
+            // Применяем урон от столкновения (урон самому себе)
+            _playerNetwork.TakeDamage(damage, OwnerClientId);
         }
         
         // ==================== SYNC WHEELS ====================

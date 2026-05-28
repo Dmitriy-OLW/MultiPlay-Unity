@@ -9,6 +9,9 @@ namespace Multi.PR1
         [SerializeField] private CarCameraController _cameraController;
         [SerializeField] private NetworkCarController _carController;
         [SerializeField] private Transform _bulletSpawnPoint;
+        
+        [Header("Shooting Cone")]
+        [SerializeField] private float _maxHorizontalAngle = 60f; // Максимальный угол отклонения в градусах
 
         private void Start()
         {
@@ -41,7 +44,7 @@ namespace Multi.PR1
             // Проверяем состояние курсора через CarCameraController
             if (_cameraController != null && !IsCursorLocked()) return;
             
-            // Смена цвета (оставляем для совместимости)
+            // Смена цвета
             if (Input.GetKeyDown(KeyCode.P))
             {
                 _playerNetwork.RequestRandomColorServerRpc();
@@ -57,14 +60,11 @@ namespace Multi.PR1
             // Стрельба
             if (Input.GetMouseButtonDown(0))
             {
-                // Получаем направление от камеры (центр экрана)
-                Vector3 shootDirection = GetCameraForward();
-                
-                // Стреляем из точки перед камерой
+                Vector3 shootDirection = GetShootDirection();
                 Vector3 shootPosition = GetShootPosition();
                 
                 _playerNetwork.ShootServerRpc(shootPosition, shootDirection);
-                Debug.Log($"[PlayerInputHandler] Player {OwnerClientId} shot from {shootPosition}");
+                Debug.Log($"[PlayerInputHandler] Player {OwnerClientId} shot with direction {shootDirection}");
             }
         }
         
@@ -73,31 +73,48 @@ namespace Multi.PR1
             return Cursor.lockState == CursorLockMode.Locked;
         }
         
-        private Vector3 GetCameraForward()
+        private Vector3 GetShootDirection()
         {
             Camera mainCamera = Camera.main;
-            if (mainCamera != null)
-            {
-                return mainCamera.transform.forward;
-            }
-            return transform.forward;
+            if (mainCamera == null) return transform.forward;
+            
+            // Получаем направление камеры
+            Vector3 cameraForward = mainCamera.transform.forward;
+            
+            // Получаем направление машины (только горизонтальная составляющая)
+            Vector3 carForward = transform.forward;
+            carForward.y = 0;
+            carForward.Normalize();
+            
+            // Вычисляем угол между направлением камеры и направлением машины
+            Vector3 cameraHorizontal = cameraForward;
+            cameraHorizontal.y = 0;
+            cameraHorizontal.Normalize();
+            
+            float angleToCar = Vector3.SignedAngle(carForward, cameraHorizontal, Vector3.up);
+            
+            // Ограничиваем угол конусом
+            float clampedAngle = Mathf.Clamp(angleToCar, -_maxHorizontalAngle, _maxHorizontalAngle);
+            
+            // Создаём новое направление: поворачиваем направление машины на ограниченный угол
+            Quaternion horizontalRotation = Quaternion.AngleAxis(clampedAngle, Vector3.up);
+            Vector3 finalDirection = horizontalRotation * carForward;
+            
+            // Сохраняем оригинальный Y компонент (стреляем ровно по горизонтали)
+            finalDirection.y = 0;
+            finalDirection.Normalize();
+            
+            return finalDirection;
         }
         
         private Vector3 GetShootPosition()
         {
-            Camera mainCamera = Camera.main;
-            if (mainCamera != null && _bulletSpawnPoint == null)
-            {
-                // Стреляем из центра камеры
-                return mainCamera.transform.position + mainCamera.transform.forward * 0.5f;
-            }
-            
             if (_bulletSpawnPoint != null)
             {
                 return _bulletSpawnPoint.position;
             }
             
-            // Fallback: стреляем из позиции перед машиной
+            // Fallback: стреляем из позиции перед машиной на высоте 1 метр
             return transform.position + transform.forward * 2f + Vector3.up * 1f;
         }
     }
