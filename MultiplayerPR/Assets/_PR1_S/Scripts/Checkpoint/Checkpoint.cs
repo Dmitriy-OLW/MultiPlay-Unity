@@ -58,19 +58,6 @@ namespace Multi.PR1
             _manager.OnCheckpointPassed(player, _checkpointIndex);
         }
         
-        private void OnDrawGizmos()
-        {
-            Gizmos.color = Color.yellow;
-            BoxCollider boxCollider = GetComponent<BoxCollider>();
-            if (boxCollider != null)
-            {
-                Gizmos.DrawWireCube(transform.position, boxCollider.bounds.size);
-            }
-            else
-            {
-                Gizmos.DrawWireCube(transform.position, Vector3.one * 2f);
-            }
-        }
     }
     
     public enum CheckpointState

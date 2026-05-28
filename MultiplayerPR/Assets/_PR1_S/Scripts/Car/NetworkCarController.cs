@@ -2,6 +2,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System;
+using TMPro;
 
 namespace Multi.PR1
 {
@@ -48,7 +49,7 @@ namespace Multi.PR1
 
         [Header("UI")]
         public bool useUI = false;
-        public Text carSpeedText;
+        public TMP_Text carSpeedText;
 
         [Header("Sounds")]
         public bool useSounds = false;

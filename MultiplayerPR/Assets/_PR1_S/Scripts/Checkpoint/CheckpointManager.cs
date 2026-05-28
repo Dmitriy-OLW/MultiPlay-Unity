@@ -12,7 +12,7 @@ namespace Multi.PR1
         [Header("Settings")]
         [SerializeField] private int _totalLaps = 1;        // 0 = бесконечно, 1 = один круг
         [SerializeField] private int _checkpointPoints = 1;  // Очков за чекпоинт
-        [SerializeField] private int _lapBonusPoints = 10;   // Бонус за завершение КРУГА (только при прохождении последнего чекпоинта)
+        [SerializeField] private int _raceFinishBonus = 10;   // Бонус за завершение ВСЕХ кругов (финиш)
         
         [Header("Visual Settings")]
         [SerializeField] private float _stateSyncRate = 0.2f; // Частота синхронизации состояний
@@ -133,27 +133,35 @@ namespace Multi.PR1
             
             if (isLastCheckpoint)
             {
-                // Завершение круга - НАЧИСЛЯЕМ БОНУС ЗА КРУГ
+                // Завершение круга
                 progress.currentLap++;
-                progress.completedCheckpoints.Clear();
                 
-                // Начисляем бонус за завершение круга (ТОЛЬКО ЗА ПОСЛЕДНИЙ ЧЕКПОИНТ)
-                player.Score.Value += _lapBonusPoints;
-                Debug.Log($"[CheckpointManager] Player {playerId} COMPLETED LAP {progress.currentLap}! +{_lapBonusPoints} bonus points! Total: {player.Score.Value}");
+                Debug.Log($"[CheckpointManager] Player {playerId} COMPLETED LAP {progress.currentLap}");
                 
                 // Проверяем, завершена ли гонка (если totalLaps > 0 и достигли лимита)
-                if (_totalLaps > 0 && progress.currentLap >= _totalLaps)
+                bool isRaceFinished = (_totalLaps > 0 && progress.currentLap >= _totalLaps);
+                
+                if (isRaceFinished)
                 {
-                    // Игрок завершил все круги
-                    Debug.Log($"[CheckpointManager] Player {playerId} FINISHED the race after {progress.currentLap} laps!");
+                    // Игрок завершил все круги - НАЧИСЛЯЕМ БОНУС ЗА ФИНИШ
+                    player.Score.Value += _raceFinishBonus;
+                    Debug.Log($"[CheckpointManager] Player {playerId} FINISHED the race after {progress.currentLap} laps! +{_raceFinishBonus} finish bonus! Total: {player.Score.Value}");
+                    
+                    // Переводим ВСЕ чекпоинты в состояние Completed
+                    for (int i = 0; i < _checkpoints.Length; i++)
+                    {
+                        SetCheckpointStateForPlayerClientRpc(playerId, i, CheckpointState.Completed);
+                    }
+                    
                     OnPlayerFinished?.Invoke(player);
                     return;
                 }
                 
-                // Сбрасываем индекс на первый чекпоинт для нового круга
+                // Если гонка не завершена - начинаем новый круг
+                progress.completedCheckpoints.Clear();
                 progress.expectedCheckpointIndex = 0;
                 
-                // Деактивируем все завершённые чекпоинты и активируем первый
+                // Деактивируем все чекпоинты и активируем первый
                 for (int i = 0; i < _checkpoints.Length; i++)
                 {
                     if (i == 0)
