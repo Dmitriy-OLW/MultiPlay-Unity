@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 533562134714881443}
   - component: {fileID: 2691805215542268500}
   - component: {fileID: 6310661050048222486}
-  m_Layer: 0
+  m_Layer: 1
   m_Name: Cube (4)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -123,7 +123,7 @@ GameObject:
   - component: {fileID: 3132634693414710264}
   - component: {fileID: 6441816096303337199}
   - component: {fileID: 8255664780694972179}
-  m_Layer: 0
+  m_Layer: 1
   m_Name: Apteka
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -294,7 +294,7 @@ GameObject:
   - component: {fileID: 8551463531397150825}
   - component: {fileID: 1216666657818861927}
   - component: {fileID: 2040602170240396815}
-  m_Layer: 0
+  m_Layer: 1
   m_Name: Cube (3)
   m_TagString: Untagged
   m_Icon: {fileID: 0}

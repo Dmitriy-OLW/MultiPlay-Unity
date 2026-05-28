@@ -1,4 +1,4 @@
-﻿﻿using Unity.Collections;
+﻿using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
 using System.Collections;
@@ -83,6 +83,12 @@ namespace Multi.PR1
         [SerializeField] private float _spawnDistanceThreshold = 3f;
         [SerializeField] private float _spawnForceDuration = 1f;
         
+        [Header("Sounds")]
+        [SerializeField] private AudioSource _damageSound;
+        [SerializeField] private AudioSource _pickupSound;
+        [SerializeField] private float _minDamageVolume = 0.5f;
+        [SerializeField] private float _maxDamageVolume = 1f;
+        
         private Renderer _renderer;
         private Coroutine _respawnCoroutine;
         private Coroutine _forceSpawnSyncCoroutine;
@@ -158,7 +164,6 @@ namespace Multi.PR1
             {
                 SetDeadColorClientRpc();
             }
-            
         }
 
         public override void OnNetworkDespawn()
@@ -269,12 +274,12 @@ namespace Multi.PR1
         public void CycleSkin()
         {
             if (!IsOwner) return;
-    
+            
             int nextSkin = (SkinIndex.Value + 1) % _skinObjects.Length;
             RequestSkinChangeServerRpc(nextSkin);
             Debug.Log($"[PlayerNetwork] Requesting skin change from {SkinIndex.Value} to {nextSkin}");
         }
-
+        
         [ServerRpc]
         public void RequestSkinChangeServerRpc(int newSkinIndex)
         {
@@ -634,10 +639,14 @@ namespace Multi.PR1
             if (!IsServer) return;
             if (!IsAlive.Value) return;
 
+            int oldHealth = Health.Value;
             Health.Value = Mathf.Max(0, Health.Value - damage);
             
             Debug.Log($"[PlayerNetwork] Player {OwnerClientId} took {damage} damage, HP: {Health.Value}");
-
+            
+            // Воспроизводим звук получения урона на клиенте
+            PlayDamageSoundClientRpc(damage);
+            
             if (Health.Value <= 0)
             {
                 if (NetworkManager.Singleton.ConnectedClients.TryGetValue(shooterId, out var shooterClient))
@@ -655,6 +664,35 @@ namespace Multi.PR1
             }
         }
         
+        [ClientRpc]
+        private void PlayDamageSoundClientRpc(int damage)
+        {
+            if (_damageSound == null)
+            {
+                // Пробуем найти AudioSource
+                _damageSound = GetComponent<AudioSource>();
+                if (_damageSound == null)
+                {
+                    _damageSound = GetComponentInChildren<AudioSource>();
+                    if (_damageSound == null)
+                    {
+                        Debug.LogWarning("[PlayerNetwork] No damage sound AudioSource found!");
+                        return;
+                    }
+                }
+            }
+            
+            // Расчёт громкости от полученного урона
+            float damagePercent = Mathf.Clamp01((float)damage / 100f);
+            float volume = _minDamageVolume + damagePercent * (_maxDamageVolume - _minDamageVolume);
+            
+            _damageSound.volume = volume;
+            _damageSound.pitch = Random.Range(0.9f, 1.1f);
+            _damageSound.Play();
+            
+            Debug.Log($"[PlayerNetwork] Playing damage sound with volume: {volume:F2} (damage: {damage})");
+        }
+        
         public void Heal(int amount)
         {
             if (!IsServer) return;
@@ -664,6 +702,9 @@ namespace Multi.PR1
             Health.Value = newHealth;
             
             Debug.Log($"[PlayerNetwork] Player {OwnerClientId} healed by {amount}. New HP: {newHealth}");
+            
+            // Воспроизводим звук подбора аптечки
+            PlayPickupSoundClientRpc("health");
         }
         
         public void AddAmmo(int amount)
@@ -675,6 +716,34 @@ namespace Multi.PR1
             Ammo.Value = newAmmo;
             
             Debug.Log($"[PlayerNetwork] Player {OwnerClientId} got {amount} ammo. New ammo: {newAmmo}");
+            
+            // Воспроизводим звук подбора патронов
+            PlayPickupSoundClientRpc("ammo");
+        }
+        
+        [ClientRpc]
+        private void PlayPickupSoundClientRpc(string pickupType)
+        {
+            if (_pickupSound == null)
+            {
+                // Пробуем найти AudioSource
+                _pickupSound = GetComponent<AudioSource>();
+                if (_pickupSound == null)
+                {
+                    _pickupSound = GetComponentInChildren<AudioSource>();
+                    if (_pickupSound == null)
+                    {
+                        Debug.LogWarning("[PlayerNetwork] No pickup sound AudioSource found!");
+                        return;
+                    }
+                }
+            }
+            
+            _pickupSound.volume = 0.7f;
+            _pickupSound.pitch = pickupType == "health" ? 1.0f : 1.2f;
+            _pickupSound.Play();
+            
+            Debug.Log($"[PlayerNetwork] Playing pickup sound for: {pickupType}");
         }
         
         [ServerRpc(RequireOwnership = false)]

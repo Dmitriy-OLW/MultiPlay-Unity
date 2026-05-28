@@ -55,12 +55,14 @@ namespace Multi.PR1
         public bool useSounds = false;
         public AudioSource carEngineSound;
         public AudioSource tireScreechSound;
+        
         [Header("Collision Sound")]
         public AudioSource collisionSound;
         public float minCollisionVolume = 0.5f;
         public float maxCollisionVolume = 1f;
-        public float minCollisionSpeed = 50f;  // км/ч
-        public float maxCollisionSpeed = 100f; // км/ч
+        public float minCollisionSpeed = 50f;
+        public float maxCollisionSpeed = 100f;
+        
         private float initialCarEngineSoundPitch;
 
         [Header("Camera")]
@@ -68,8 +70,8 @@ namespace Multi.PR1
         
         [Header("Collision Damage")]
         [SerializeField] private float _damageMultiplier = 0.1f;
-        [SerializeField] private float _minDamageSpeed = 10f; // 10 км/ч
-        [SerializeField] private float _maxDamageSpeed = 100f; // 100 км/ч
+        [SerializeField] private float _minDamageSpeed = 10f;
+        [SerializeField] private float _maxDamageSpeed = 100f;
         [SerializeField] private int _maxDamage = 50;
         
         [Header("Respawn")]
@@ -270,7 +272,6 @@ namespace Multi.PR1
             
             Debug.Log($"[Server] Player {OwnerClientId} self killed");
             
-            // Наносим урон равный текущему здоровью (убиваем)
             _playerNetwork.TakeDamage(_playerNetwork.Health.Value, OwnerClientId);
         }
         
@@ -477,47 +478,53 @@ namespace Multi.PR1
         
         private void OnCollisionEnter(Collision collision)
         {
-            // Проверяем кулдаун столкновения
             if (Time.time - _lastCollisionTime < _collisionCooldown) return;
             
-            // Получаем скорость столкновения в м/с
             float collisionSpeedMS = collision.relativeVelocity.magnitude;
-            
-            // Переводим в км/ч для удобства расчёта
             float speedKmh = collisionSpeedMS * 3.6f;
             
             if (speedKmh >= _minDamageSpeed)
             {
                 _lastCollisionTime = Time.time;
                 
-                // Расчёт урона: линейная зависимость от скорости
                 float damagePercent = Mathf.Clamp01((speedKmh - _minDamageSpeed) / (_maxDamageSpeed - _minDamageSpeed));
                 int damage = Mathf.RoundToInt(damagePercent * _maxDamage);
                 damage = Mathf.Max(1, damage);
                 
                 Debug.Log($"[CarController] Collision! Speed: {speedKmh:F1} km/h, Calculated Damage: {damage}");
                 
-                // Воспроизводим звук столкновения на клиенте
-                PlayCollisionSoundClientRpc(speedKmh);
+                PlayCollisionSoundLocal(speedKmh);
                 
-                // Отправляем урон на сервер
                 SendCollisionDamageServerRpc(damage);
             }
         }
         
-        [ClientRpc]
-        private void PlayCollisionSoundClientRpc(float speedKmh)
+        private void PlayCollisionSoundLocal(float speedKmh)
         {
-            if (collisionSound == null) return;
+            if (collisionSound == null)
+            {
+                collisionSound = GetComponent<AudioSource>();
+                if (collisionSound == null)
+                {
+                    collisionSound = GetComponentInChildren<AudioSource>();
+                    if (collisionSound == null)
+                    {
+                        Debug.LogWarning("[CarController] No AudioSource found for collision sound!");
+                        return;
+                    }
+                }
+            }
             
-            // Расчёт громкости: от 0.5 при 50 км/ч до 1.0 при 100+ км/ч
+            if (speedKmh < minCollisionSpeed) return;
+            
             float volumePercent = Mathf.Clamp01((speedKmh - minCollisionSpeed) / (maxCollisionSpeed - minCollisionSpeed));
             float volume = minCollisionVolume + volumePercent * (maxCollisionVolume - minCollisionVolume);
             
             collisionSound.volume = volume;
+            collisionSound.pitch = UnityEngine.Random.Range(0.8f, 1.2f);
             collisionSound.Play();
             
-            Debug.Log($"[CarController] Playing collision sound with volume: {volume:F2} (speed: {speedKmh:F1} km/h)");
+            Debug.Log($"[CarController] Playing collision sound with volume: {volume:F2}, pitch: {collisionSound.pitch:F2} (speed: {speedKmh:F1} km/h)");
         }
         
         [ServerRpc]
@@ -528,7 +535,6 @@ namespace Multi.PR1
             
             Debug.Log($"[Server] Applying collision damage {damage} to player {OwnerClientId}");
             
-            // Применяем урон от столкновения (урон самому себе)
             _playerNetwork.TakeDamage(damage, OwnerClientId);
         }
         
