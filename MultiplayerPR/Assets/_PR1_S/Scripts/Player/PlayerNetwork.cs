@@ -158,6 +158,7 @@ namespace Multi.PR1
             {
                 SetDeadColorClientRpc();
             }
+            
         }
 
         public override void OnNetworkDespawn()
