@@ -21043,7 +21043,7 @@ GameObject:
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
+  m_StaticEditorFlags: 2147483647
   m_IsActive: 1
 --- !u!114 &402601853
 MonoBehaviour:
@@ -21087,7 +21087,7 @@ MonoBehaviour:
   _gameDuration: 180
   _resultsDuration: 10
   _countdownDuration: 3
-  _uiManager: {fileID: 0}
+  _uiManager: {fileID: 402601856}
   _fadeCanvas: {fileID: 2143633755}
   _fadeDuration: 0.5
   _gameAudioSource: {fileID: 328840379}
@@ -21120,16 +21120,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
-  _gameStateText: {fileID: 0}
-  _timerText: {fileID: 0}
+  _gameStateText: {fileID: 1828340812}
+  _timerText: {fileID: 1804845969}
   _inputBlockedOverlay: {fileID: 0}
-  _countdownText: {fileID: 0}
-  _resultsPanel: {fileID: 0}
-  _resultsContainer: {fileID: 0}
-  _resultEntryPrefab: {fileID: 0}
-  _lobbyPanel: {fileID: 0}
-  _waitingForPlayersText: {fileID: 0}
-  _pauseMenuPanel: {fileID: 0}
+  _countdownText: {fileID: 816207305}
+  _resultsPanel: {fileID: 560513787}
+  _resultsContainer: {fileID: 456657510}
+  _resultEntryPrefab: {fileID: 4661742336988863526, guid: cd9f2a67b2c08f04e9a5f7999034049d, type: 3}
+  _lobbyPanel: {fileID: 12628934}
+  _waitingForPlayersText: {fileID: 2080920492}
+  _pauseMenuPanel: {fileID: 39780936}
 --- !u!1 &402780887 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -2204117940675947502, guid: 5b381d4b31f12bf48b54c57c1b7ecaca, type: 3}
@@ -45651,7 +45651,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 1943681402774837857, guid: cd9f2a67b2c08f04e9a5f7999034049d, type: 3}
       propertyPath: m_text
-      value: qwwq
+      value: Results
       objectReference: {fileID: 0}
     - target: {fileID: 1943681402774837857, guid: cd9f2a67b2c08f04e9a5f7999034049d, type: 3}
       propertyPath: m_fontSize
