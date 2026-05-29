@@ -34,6 +34,7 @@ namespace Multi.PR1
         private Dictionary<ulong, PlayerResultData> _playerResults = new Dictionary<ulong, PlayerResultData>();
         private bool _isRestarting = false;
         private bool _fadeStarted = false;
+        private bool _fadeInProgress = false;
         
         public GameState CurrentState => _currentState;
         public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results;
@@ -67,6 +68,9 @@ namespace Multi.PR1
                 
                 SetState(GameState.Lobby);
                 UpdateLobbyUI();
+                
+                // Показываем fade для хоста при подключении
+                StartCoroutine(ShowFadeAtStart());
             }
             else
             {
@@ -77,7 +81,36 @@ namespace Multi.PR1
                     _uiManager.ShowGameUI(true);
                     _uiManager.UpdateWaitingPlayersText(0, _targetPlayers);
                 }
+                
+                // Показываем fade для клиента при подключении
+                StartCoroutine(ShowFadeAtStart());
             }
+        }
+        
+        private IEnumerator ShowFadeAtStart()
+        {
+            if (_fadeCanvas == null) yield break;
+            
+            // Показываем fade
+            _fadeCanvas.alpha = 1;
+            yield return new WaitForSeconds(0.5f);
+            
+            // Плавно убираем fade
+            float elapsed = 0;
+            while (elapsed < _fadeDuration)
+            {
+                elapsed += Time.deltaTime;
+                _fadeCanvas.alpha = 1 - Mathf.Clamp01(elapsed / _fadeDuration);
+                yield return null;
+            }
+            _fadeCanvas.alpha = 0;
+        }
+        
+        // Прямой метод для установки количества игроков (вызывается из ConnectionUI до NetworkSpawn)
+        public void SetTargetPlayers(int count)
+        {
+            _targetPlayers = Mathf.Max(2, Mathf.Min(10, count));
+            Debug.Log($"[GameManager] Target players set directly to: {_targetPlayers}");
         }
         
         // Обработка отключения от сети (хост упал)
@@ -108,10 +141,14 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
-            Debug.Log($"[GameManager] Client {clientId} connected. Current players: {NetworkManager.Singleton.ConnectedClients.Count}/{_targetPlayers}");
+            int currentPlayers = NetworkManager.Singleton.ConnectedClients.Count;
+            Debug.Log($"[GameManager] Client {clientId} connected. Current players: {currentPlayers}/{_targetPlayers}");
             
-            // Показываем Game UI для ВСЕХ подключённых игроков (включая хоста)
+            // Показываем Game UI для всех подключённых игроков
             ShowGameUIClientRpc();
+            
+            // Показываем fade эффект для подключающегося игрока
+            ShowFadeForPlayerClientRpc(clientId);
             
             if (_checkpointManager != null)
             {
@@ -120,7 +157,7 @@ namespace Multi.PR1
             
             UpdateLobbyUI();
             
-            if (_currentState == GameState.Lobby && NetworkManager.Singleton.ConnectedClients.Count >= _targetPlayers && !_countdownStarted)
+            if (_currentState == GameState.Lobby && currentPlayers >= _targetPlayers && !_countdownStarted)
             {
                 Debug.Log($"[GameManager] Target players reached! Starting countdown...");
                 StartCoroutine(StartCountdownWithFade());
@@ -135,6 +172,16 @@ namespace Multi.PR1
                 _uiManager.ShowLobbyUI(false);
                 _uiManager.ShowGameUI(true);
                 Debug.Log($"[GameManager] Game UI shown on client");
+            }
+        }
+        
+        [ClientRpc]
+        private void ShowFadeForPlayerClientRpc(ulong clientId)
+        {
+            // Показываем fade только для подключающегося игрока
+            if (NetworkManager.Singleton.LocalClientId == clientId)
+            {
+                StartCoroutine(ShowFadeAtStart());
             }
         }
         
@@ -176,6 +223,7 @@ namespace Multi.PR1
             if (_uiManager != null)
             {
                 _uiManager.UpdateWaitingPlayersText(current, target);
+                Debug.Log($"[GameManager] Updated waiting text on client: {current}/{target}");
             }
         }
         
@@ -195,6 +243,9 @@ namespace Multi.PR1
         private IEnumerator FadeIn()
         {
             if (_fadeCanvas == null) yield break;
+            if (_fadeInProgress) yield break;
+            
+            _fadeInProgress = true;
             
             float elapsed = 0;
             while (elapsed < _fadeDuration)
@@ -204,11 +255,16 @@ namespace Multi.PR1
                 yield return null;
             }
             _fadeCanvas.alpha = 1;
+            
+            _fadeInProgress = false;
         }
         
         private IEnumerator FadeOut()
         {
             if (_fadeCanvas == null) yield break;
+            if (_fadeInProgress) yield break;
+            
+            _fadeInProgress = true;
             
             float elapsed = 0;
             while (elapsed < _fadeDuration)
@@ -218,6 +274,8 @@ namespace Multi.PR1
                 yield return null;
             }
             _fadeCanvas.alpha = 0;
+            
+            _fadeInProgress = false;
         }
         
         private void StartCountdown()
@@ -532,7 +590,7 @@ namespace Multi.PR1
             if (IsServer)
             {
                 _targetPlayers = Mathf.Max(2, Mathf.Min(10, count));
-                Debug.Log($"[GameManager] Target players set to: {_targetPlayers}");
+                Debug.Log($"[GameManager] Target players set via RPC to: {_targetPlayers}");
             }
         }
         

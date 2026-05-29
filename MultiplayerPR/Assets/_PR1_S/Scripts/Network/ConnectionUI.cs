@@ -2,6 +2,7 @@ using TMPro;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
+using System.Collections;
 
 namespace Multi.PR1
 {
@@ -38,11 +39,7 @@ namespace Multi.PR1
             
             Debug.Log($"[ConnectionUI] Starting as Host with player count: {playerCount}");
             
-            if (GameManager.Instance != null)
-            {
-                GameManager.Instance.SetTargetPlayersServerRpc(playerCount);
-            }
-            
+            // Сначала запускаем хост
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             if (transport != null)
             {
@@ -51,11 +48,31 @@ namespace Multi.PR1
             
             NetworkManager.Singleton.StartHost();
             
+            // Ждём один кадр, чтобы NetworkManager инициализировался, затем отправляем количество игроков
+            StartCoroutine(SetPlayerCountAfterStart(playerCount));
+            
             // Скрываем лобби сразу при старте
             if (_lobbyPanel != null)
                 _lobbyPanel.SetActive(false);
             
-            Debug.Log($"Started as Host with nickname: {PlayerNickname}, waiting for {playerCount} players");
+            Debug.Log($"Started as Host with nickname: {PlayerNickname}, will wait for {playerCount} players");
+        }
+        
+        private IEnumerator SetPlayerCountAfterStart(int playerCount)
+        {
+            // Ждём, пока NetworkManager полностью инициализируется
+            yield return null;
+            yield return null;
+            
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.SetTargetPlayers(playerCount);
+                Debug.Log($"[ConnectionUI] Set target players to {playerCount} via direct call");
+            }
+            else
+            {
+                Debug.LogError("[ConnectionUI] GameManager.Instance is null!");
+            }
         }
 
         public void StartAsClient()
