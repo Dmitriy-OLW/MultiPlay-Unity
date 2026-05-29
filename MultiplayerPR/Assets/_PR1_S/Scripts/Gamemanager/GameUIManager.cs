@@ -180,7 +180,13 @@ namespace Multi.PR1
         
         public void ShowResults(string[] playerNames, int[] playerScores, ulong winnerId)
         {
-            Debug.Log($"[GameUIManager] Showing results for {playerNames.Length} players");
+            Debug.Log($"[GameUIManager] ShowResults called with {playerNames.Length} players");
+            
+            if (playerNames == null || playerNames.Length == 0)
+            {
+                Debug.LogError("[GameUIManager] No players data!");
+                return;
+            }
             
             // Сначала скрываем Game UI
             ShowGameUI(false);
@@ -206,18 +212,21 @@ namespace Multi.PR1
                 Destroy(child.gameObject);
             }
             
+            // Сортируем результаты по убыванию очков
             var results = new List<(string name, int score)>();
             for (int i = 0; i < playerNames.Length; i++)
             {
                 results.Add((playerNames[i], playerScores[i]));
+                Debug.Log($"[GameUIManager] Player {i}: {playerNames[i]} - {playerScores[i]} pts");
             }
             results.Sort((a, b) => b.score.CompareTo(a.score));
             
+            // Создаём записи для каждого игрока
             for (int i = 0; i < results.Count; i++)
             {
                 GameObject entry = Instantiate(_resultEntryPrefab, _resultsContainer);
                 
-                // Ищем TMP_Text в prefab'е
+                // Ищем TMP_Text в prefab'е (сначала в корне, потом в детях)
                 TMP_Text entryText = entry.GetComponent<TMP_Text>();
                 if (entryText == null)
                 {
@@ -227,16 +236,19 @@ namespace Multi.PR1
                 if (entryText != null)
                 {
                     string prefix = (i == 0) ? "🏆 " : "";
-                    entryText.text = $"{prefix}{results[i].name}: {results[i].score} pts";
+                    string suffix = (i == 0) ? " - WINNER!" : "";
+                    entryText.text = $"{prefix}{results[i].name}: {results[i].score} pts{suffix}";
                     entryText.color = (i == 0) ? Color.yellow : Color.white;
                     entryText.fontSize = (i == 0) ? 36 : 28;
-                    Debug.Log($"[GameUIManager] Added result entry: {entryText.text}");
+                    Debug.Log($"[GameUIManager] Created result entry: {entryText.text}");
                 }
                 else
                 {
-                    Debug.LogError($"[GameUIManager] Result entry prefab has no TMP_Text component!");
+                    Debug.LogError($"[GameUIManager] Result entry prefab has no TMP_Text component! Please check the prefab.");
                 }
             }
+            
+            Debug.Log($"[GameUIManager] Results UI shown with {results.Count} entries");
         }
         
         public void TogglePauseMenu()

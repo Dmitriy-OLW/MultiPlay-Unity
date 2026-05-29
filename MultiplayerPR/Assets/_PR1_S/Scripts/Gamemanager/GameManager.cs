@@ -21,7 +21,7 @@ namespace Multi.PR1
         
         [Header("Fade Effect")]
         [SerializeField] private CanvasGroup _fadeCanvas;
-        [SerializeField] private float _fadeDuration = 0.5f;
+        [SerializeField] private float _fadeDuration = 1f;
         
         [Header("References")]
         [SerializeField] private CheckpointManager _checkpointManager;
@@ -35,6 +35,10 @@ namespace Multi.PR1
         private bool _isRestarting = false;
         private bool _fadeStarted = false;
         private bool _fadeInProgress = false;
+        private bool _resultsShown = false;
+        
+        // Храним данные игроков отдельно
+        private Dictionary<ulong, CachedPlayerData> _cachedPlayerData = new Dictionary<ulong, CachedPlayerData>();
         
         public GameState CurrentState => _currentState;
         public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results;
@@ -49,53 +53,58 @@ namespace Multi.PR1
                 
             if (_fadeCanvas != null)
                 _fadeCanvas.alpha = 0;
+                
+            Debug.Log($"[GameManager] Awake - Instance set");
         }
         
         public override void OnNetworkSpawn()
         {
-            Debug.Log($"[GameManager] OnNetworkSpawn - IsServer: {IsServer}, IsClient: {IsClient}");
+            Debug.Log($"[GameManager] OnNetworkSpawn START - IsServer: {IsServer}, IsClient: {IsClient}, IsHost: {IsHost}");
             
             if (_uiManager == null)
+            {
                 _uiManager = FindObjectOfType<GameUIManager>();
+                Debug.Log($"[GameManager] UIManager found: {_uiManager != null}");
+            }
             
-            // Подписываемся на события отключения от сети
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnectedFromNetwork;
             
             if (IsServer)
             {
+                Debug.Log($"[GameManager] Running as SERVER");
                 NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
                 NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
                 
                 SetState(GameState.Lobby);
                 UpdateLobbyUI();
                 
-                // Показываем fade для хоста при подключении
                 StartCoroutine(ShowFadeAtStart());
             }
             else
             {
-                // Клиент: показываем Game UI сразу (убираем лобби)
+                Debug.Log($"[GameManager] Running as CLIENT");
                 if (_uiManager != null)
                 {
                     _uiManager.ShowLobbyUI(false);
                     _uiManager.ShowGameUI(true);
                     _uiManager.UpdateWaitingPlayersText(0, _targetPlayers);
+                    Debug.Log($"[GameManager] Client UI initialized");
                 }
                 
-                // Показываем fade для клиента при подключении
                 StartCoroutine(ShowFadeAtStart());
             }
+            
+            Debug.Log($"[GameManager] OnNetworkSpawn END");
         }
         
         private IEnumerator ShowFadeAtStart()
         {
+            Debug.Log($"[GameManager] ShowFadeAtStart START");
             if (_fadeCanvas == null) yield break;
             
-            // Показываем fade
             _fadeCanvas.alpha = 1;
             yield return new WaitForSeconds(0.5f);
             
-            // Плавно убираем fade
             float elapsed = 0;
             while (elapsed < _fadeDuration)
             {
@@ -104,18 +113,19 @@ namespace Multi.PR1
                 yield return null;
             }
             _fadeCanvas.alpha = 0;
+            Debug.Log($"[GameManager] ShowFadeAtStart END");
         }
         
-        // Прямой метод для установки количества игроков (вызывается из ConnectionUI до NetworkSpawn)
         public void SetTargetPlayers(int count)
         {
             _targetPlayers = Mathf.Max(2, Mathf.Min(10, count));
-            Debug.Log($"[GameManager] Target players set directly to: {_targetPlayers}");
+            Debug.Log($"[GameManager] SetTargetPlayers - target players set to: {_targetPlayers}");
         }
         
-        // Обработка отключения от сети (хост упал)
         private void OnClientDisconnectedFromNetwork(ulong clientId)
         {
+            Debug.Log($"[GameManager] OnClientDisconnectedFromNetwork - clientId: {clientId}, IsServer: {IsServer}, LocalClientId: {NetworkManager.Singleton.LocalClientId}");
+            
             if (!IsServer && clientId == NetworkManager.Singleton.LocalClientId)
             {
                 Debug.Log("[GameManager] Client disconnected from host! Restarting scene locally...");
@@ -125,6 +135,8 @@ namespace Multi.PR1
         
         public override void OnNetworkDespawn()
         {
+            Debug.Log($"[GameManager] OnNetworkDespawn");
+            
             if (NetworkManager.Singleton != null)
             {
                 NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnectedFromNetwork;
@@ -142,12 +154,15 @@ namespace Multi.PR1
             if (!IsServer) return;
             
             int currentPlayers = NetworkManager.Singleton.ConnectedClients.Count;
-            Debug.Log($"[GameManager] Client {clientId} connected. Current players: {currentPlayers}/{_targetPlayers}");
+            Debug.Log($"[GameManager] OnClientConnected - clientId: {clientId}, Current players: {currentPlayers}/{_targetPlayers}");
             
-            // Показываем Game UI для всех подключённых игроков
+            // Выводим всех подключённых игроков
+            foreach (var client in NetworkManager.Singleton.ConnectedClients)
+            {
+                Debug.Log($"[GameManager] Connected client: {client.Key}, PlayerObject: {client.Value.PlayerObject != null}");
+            }
+            
             ShowGameUIClientRpc();
-            
-            // Показываем fade эффект для подключающегося игрока
             ShowFadeForPlayerClientRpc(clientId);
             
             if (_checkpointManager != null)
@@ -167,18 +182,25 @@ namespace Multi.PR1
         [ClientRpc]
         private void ShowGameUIClientRpc()
         {
+            Debug.Log($"[GameManager] ShowGameUIClientRpc called on client {NetworkManager.Singleton.LocalClientId}");
+            
             if (_uiManager != null)
             {
                 _uiManager.ShowLobbyUI(false);
                 _uiManager.ShowGameUI(true);
-                Debug.Log($"[GameManager] Game UI shown on client");
+                Debug.Log($"[GameManager] Game UI shown on client {NetworkManager.Singleton.LocalClientId}");
+            }
+            else
+            {
+                Debug.LogError($"[GameManager] UIManager is null in ShowGameUIClientRpc!");
             }
         }
         
         [ClientRpc]
         private void ShowFadeForPlayerClientRpc(ulong clientId)
         {
-            // Показываем fade только для подключающегося игрока
+            Debug.Log($"[GameManager] ShowFadeForPlayerClientRpc - targetClient: {clientId}, localClient: {NetworkManager.Singleton.LocalClientId}");
+            
             if (NetworkManager.Singleton.LocalClientId == clientId)
             {
                 StartCoroutine(ShowFadeAtStart());
@@ -189,7 +211,7 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
-            Debug.Log($"[GameManager] Client {clientId} disconnected");
+            Debug.Log($"[GameManager] OnClientDisconnected - clientId: {clientId}");
             
             if (_checkpointManager != null)
             {
@@ -198,6 +220,7 @@ namespace Multi.PR1
             
             if (_currentState == GameState.Playing || _currentState == GameState.Starting)
             {
+                Debug.Log($"[GameManager] Client disconnected during game, ending game...");
                 StartCoroutine(EndGameWithDelay());
             }
             else if (_currentState == GameState.Lobby)
@@ -220,28 +243,27 @@ namespace Multi.PR1
         [ClientRpc]
         private void UpdateWaitingTextClientRpc(int current, int target)
         {
+            Debug.Log($"[GameManager] UpdateWaitingTextClientRpc on client {NetworkManager.Singleton.LocalClientId}: {current}/{target}");
+            
             if (_uiManager != null)
             {
                 _uiManager.UpdateWaitingPlayersText(current, target);
-                Debug.Log($"[GameManager] Updated waiting text on client: {current}/{target}");
             }
         }
         
         private IEnumerator StartCountdownWithFade()
         {
-            // Показываем fade экран перед началом игры
+            Debug.Log($"[GameManager] StartCountdownWithFade START");
             yield return StartCoroutine(FadeIn());
-            
             yield return new WaitForSeconds(0.5f);
-            
             StartCountdown();
-            
-            // Скрываем fade после начала отсчёта
             yield return StartCoroutine(FadeOut());
+            Debug.Log($"[GameManager] StartCountdownWithFade END");
         }
         
         private IEnumerator FadeIn()
         {
+            Debug.Log($"[GameManager] FadeIn START");
             if (_fadeCanvas == null) yield break;
             if (_fadeInProgress) yield break;
             
@@ -257,10 +279,12 @@ namespace Multi.PR1
             _fadeCanvas.alpha = 1;
             
             _fadeInProgress = false;
+            Debug.Log($"[GameManager] FadeIn END");
         }
         
         private IEnumerator FadeOut()
         {
+            Debug.Log($"[GameManager] FadeOut START");
             if (_fadeCanvas == null) yield break;
             if (_fadeInProgress) yield break;
             
@@ -276,6 +300,7 @@ namespace Multi.PR1
             _fadeCanvas.alpha = 0;
             
             _fadeInProgress = false;
+            Debug.Log($"[GameManager] FadeOut END");
         }
         
         private void StartCountdown()
@@ -286,8 +311,7 @@ namespace Multi.PR1
             _countdownStarted = true;
             SetState(GameState.Starting);
             
-            Debug.Log($"[GameManager] Starting countdown!");
-            
+            Debug.Log($"[GameManager] StartCountdown - Starting countdown!");
             StartCoroutine(CountdownCoroutine());
         }
         
@@ -305,7 +329,6 @@ namespace Multi.PR1
             
             UpdateCountdownClientRpc(-1f);
             yield return new WaitForSeconds(0.5f);
-            
             UpdateCountdownClientRpc(0f);
             StartGame();
         }
@@ -313,6 +336,7 @@ namespace Multi.PR1
         [ClientRpc]
         private void UpdateCountdownClientRpc(float remainingTime)
         {
+            Debug.Log($"[GameManager] UpdateCountdownClientRpc on client {NetworkManager.Singleton.LocalClientId}: {remainingTime}");
             if (_uiManager != null)
                 _uiManager.UpdateCountdown(remainingTime);
         }
@@ -321,21 +345,92 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
-            Debug.Log($"[GameManager] Starting game!");
+            Debug.Log($"[GameManager] StartGame - STARTING GAME!");
             
             SetState(GameState.Playing);
             _gameTimeRemaining = _gameDuration;
             _isGameFinished = false;
+            _resultsShown = false;
             
-            // Скрываем текст ожидания
+            // Кэшируем всех игроков
+            CacheAllPlayersDataAndSubscribe();
+            
             HideWaitingTextClientRpc();
-            
             UpdateGameStateClientRpc("RACING", Color.green);
+            
+            Debug.Log($"[GameManager] StartGame - Game started, duration: {_gameDuration} seconds");
+        }
+        
+        private void CacheAllPlayersDataAndSubscribe()
+        {
+            Debug.Log($"[GameManager] CacheAllPlayersDataAndSubscribe START");
+            _cachedPlayerData.Clear();
+            
+            int connectedCount = NetworkManager.Singleton.ConnectedClients.Count;
+            Debug.Log($"[GameManager] Connected clients count: {connectedCount}");
+            
+            foreach (var client in NetworkManager.Singleton.ConnectedClients)
+            {
+                Debug.Log($"[GameManager] Processing client {client.Key}");
+                
+                PlayerNetwork player = client.Value.PlayerObject?.GetComponent<PlayerNetwork>();
+                if (player != null)
+                {
+                    string nickname = player.Nickname.Value.ToString();
+                    int score = player.Score.Value;
+                    
+                    CachedPlayerData data = new CachedPlayerData
+                    {
+                        PlayerId = client.Key,
+                        Nickname = nickname,
+                        Score = score
+                    };
+                    _cachedPlayerData[client.Key] = data;
+                    
+                    Debug.Log($"[GameManager] CACHED player {client.Key}: Name='{nickname}', Score={score}");
+                    
+                    // Подписываемся на изменение счёта
+                    player.Score.OnValueChanged += (oldScore, newScore) => OnPlayerScoreChanged(client.Key, oldScore, newScore);
+                }
+                else
+                {
+                    Debug.LogWarning($"[GameManager] PlayerNetwork component is NULL for client {client.Key}!");
+                    
+                    CachedPlayerData data = new CachedPlayerData
+                    {
+                        PlayerId = client.Key,
+                        Nickname = $"Player_{client.Key}",
+                        Score = 0
+                    };
+                    _cachedPlayerData[client.Key] = data;
+                    Debug.Log($"[GameManager] Created TEMP data for player {client.Key}");
+                }
+            }
+            
+            Debug.Log($"[GameManager] CacheAllPlayersDataAndSubscribe END - Total cached: {_cachedPlayerData.Count}");
+        }
+        
+        private void OnPlayerScoreChanged(ulong playerId, int oldScore, int newScore)
+        {
+            Debug.Log($"[GameManager] OnPlayerScoreChanged - Player {playerId}: {oldScore} -> {newScore}");
+            
+            if (_cachedPlayerData.ContainsKey(playerId))
+            {
+                var data = _cachedPlayerData[playerId];
+                data.Score = newScore;
+                _cachedPlayerData[playerId] = data;
+                Debug.Log($"[GameManager] Updated cached score for player {playerId}: {newScore}");
+            }
+            else
+            {
+                Debug.LogWarning($"[GameManager] Player {playerId} not found in cache!");
+            }
         }
         
         [ClientRpc]
         private void HideWaitingTextClientRpc()
         {
+            Debug.Log($"[GameManager] HideWaitingTextClientRpc on client {NetworkManager.Singleton.LocalClientId}");
             if (_uiManager != null)
                 _uiManager.UpdateWaitingPlayersText(_targetPlayers, _targetPlayers);
         }
@@ -343,6 +438,7 @@ namespace Multi.PR1
         [ClientRpc]
         private void UpdateGameStateClientRpc(string stateText, Color stateColor)
         {
+            Debug.Log($"[GameManager] UpdateGameStateClientRpc on client {NetworkManager.Singleton.LocalClientId}: {stateText}");
             if (_uiManager != null)
                 _uiManager.UpdateGameStateText(stateText, stateColor);
         }
@@ -357,7 +453,7 @@ namespace Multi.PR1
                 if (_gameTimeRemaining <= 0 && !_isGameFinished)
                 {
                     _isGameFinished = true;
-                    Debug.Log($"[GameManager] Time's up!");
+                    Debug.Log($"[GameManager] Update - Time's up! Ending game...");
                     StartCoroutine(EndGameWithDelay());
                 }
             }
@@ -366,6 +462,7 @@ namespace Multi.PR1
                 _resultsTimeRemaining -= Time.deltaTime;
                 if (_resultsTimeRemaining <= 0 && !_isRestarting)
                 {
+                    Debug.Log($"[GameManager] Update - Results time finished, restarting...");
                     StartCoroutine(RestartSceneWithDelay());
                 }
             }
@@ -386,7 +483,7 @@ namespace Multi.PR1
             
             _isGameFinished = true;
             
-            Debug.Log($"[GameManager] Player {winnerId} finished the race!");
+            Debug.Log($"[GameManager] FinishRace - Player {winnerId} finished the race!");
             
             CollectResults();
             StartCoroutine(EndGameWithDelay());
@@ -395,6 +492,7 @@ namespace Multi.PR1
         [ServerRpc(RequireOwnership = false)]
         public void RequestFinishRaceServerRpc(ulong playerId)
         {
+            Debug.Log($"[GameManager] RequestFinishRaceServerRpc from player {playerId}");
             if (!_isGameFinished && _currentState == GameState.Playing)
             {
                 FinishRace(playerId);
@@ -403,41 +501,101 @@ namespace Multi.PR1
         
         private void CollectResults()
         {
+            Debug.Log($"[GameManager] CollectResults START");
             _playerResults.Clear();
             
-            foreach (var client in NetworkManager.Singleton.ConnectedClients)
+            // Сначала выводим всё из кэша
+            Debug.Log($"[GameManager] Cached data count: {_cachedPlayerData.Count}");
+            foreach (var cached in _cachedPlayerData.Values)
             {
-                PlayerNetwork player = client.Value.PlayerObject?.GetComponent<PlayerNetwork>();
-                if (player != null)
-                {
-                    PlayerResultData data = new PlayerResultData
-                    {
-                        PlayerId = client.Key,
-                        Nickname = player.Nickname.Value.ToString(),
-                        Score = player.Score.Value,
-                        IsWinner = false
-                    };
-                    _playerResults[client.Key] = data;
-                }
+                Debug.Log($"[GameManager] Cached entry: PlayerId={cached.PlayerId}, Name={cached.Nickname}, Score={cached.Score}");
             }
             
+            // Используем кэшированные данные
+            foreach (var cached in _cachedPlayerData.Values)
+            {
+                PlayerResultData data = new PlayerResultData
+                {
+                    PlayerId = cached.PlayerId,
+                    Nickname = cached.Nickname,
+                    Score = cached.Score,
+                    IsWinner = false
+                };
+                _playerResults[cached.PlayerId] = data;
+                Debug.Log($"[GameManager] Added from CACHE: {data.Nickname} - Score: {data.Score}");
+            }
+            
+            // Обновляем от всё ещё подключённых игроков
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients != null)
+            {
+                Debug.Log($"[GameManager] Connected clients count: {NetworkManager.Singleton.ConnectedClients.Count}");
+                
+                foreach (var client in NetworkManager.Singleton.ConnectedClients)
+                {
+                    Debug.Log($"[GameManager] Checking connected client {client.Key}");
+                    
+                    PlayerNetwork player = client.Value.PlayerObject?.GetComponent<PlayerNetwork>();
+                    if (player != null)
+                    {
+                        string nickname = player.Nickname.Value.ToString();
+                        int score = player.Score.Value;
+                        Debug.Log($"[GameManager] Connected player {client.Key}: Name={nickname}, Score={score}");
+                        
+                        if (_playerResults.ContainsKey(client.Key))
+                        {
+                            _playerResults[client.Key].Score = score;
+                            _playerResults[client.Key].Nickname = nickname;
+                            Debug.Log($"[GameManager] Updated result for {client.Key}: {nickname} - {score}");
+                        }
+                        else
+                        {
+                            PlayerResultData data = new PlayerResultData
+                            {
+                                PlayerId = client.Key,
+                                Nickname = nickname,
+                                Score = score,
+                                IsWinner = false
+                            };
+                            _playerResults[client.Key] = data;
+                            Debug.Log($"[GameManager] Added from CONNECTED: {nickname} - {score}");
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[GameManager] Player component is NULL for connected client {client.Key}");
+                    }
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"[GameManager] NetworkManager or ConnectedClients is NULL!");
+            }
+            
+            // Определяем победителя
             ulong winnerId = 0;
             int highestScore = -1;
-            foreach (var result in _playerResults)
+            foreach (var result in _playerResults.Values)
             {
-                if (result.Value.Score > highestScore)
+                Debug.Log($"[GameManager] Result candidate: {result.Nickname} - Score: {result.Score}");
+                if (result.Score > highestScore)
                 {
-                    highestScore = result.Value.Score;
-                    winnerId = result.Key;
+                    highestScore = result.Score;
+                    winnerId = result.PlayerId;
                 }
             }
             
             if (_playerResults.ContainsKey(winnerId))
+            {
                 _playerResults[winnerId].IsWinner = true;
+                Debug.Log($"[GameManager] WINNER is player {winnerId} with score {highestScore}");
+            }
+            
+            Debug.Log($"[GameManager] CollectResults END - Total results: {_playerResults.Count}");
         }
         
         private IEnumerator EndGameWithDelay()
         {
+            Debug.Log($"[GameManager] EndGameWithDelay - Waiting 1 second...");
             yield return new WaitForSeconds(1f);
             EndGame();
         }
@@ -445,14 +603,55 @@ namespace Multi.PR1
         private void EndGame()
         {
             if (!IsServer) return;
+            if (_resultsShown) return;
             
-            Debug.Log($"[GameManager] Ending game!");
+            Debug.Log($"[GameManager] EndGame - Ending game!");
             
+            _resultsShown = true;
             SetState(GameState.Results);
             _resultsTimeRemaining = _resultsDuration;
             
+            // ПРИНУДИТЕЛЬНО собираем результаты из кэша, если _playerResults пуст
+            if (_playerResults.Count == 0 && _cachedPlayerData.Count > 0)
+            {
+                Debug.Log($"[GameManager] _playerResults is empty, using _cachedPlayerData with {_cachedPlayerData.Count} entries");
+                
+                foreach (var cached in _cachedPlayerData.Values)
+                {
+                    PlayerResultData data = new PlayerResultData
+                    {
+                        PlayerId = cached.PlayerId,
+                        Nickname = cached.Nickname,
+                        Score = cached.Score,
+                        IsWinner = false
+                    };
+                    _playerResults[cached.PlayerId] = data;
+                    Debug.Log($"[GameManager] Added from CACHE: {data.Nickname} - Score: {data.Score}");
+                }
+                
+                // Определяем победителя
+                ulong winnerId = 0;
+                int highestScore = -1;
+                foreach (var result in _playerResults.Values)
+                {
+                    if (result.Score > highestScore)
+                    {
+                        highestScore = result.Score;
+                        winnerId = result.PlayerId;
+                    }
+                }
+                
+                if (_playerResults.ContainsKey(winnerId))
+                {
+                    _playerResults[winnerId].IsWinner = true;
+                    Debug.Log($"[GameManager] WINNER is player {winnerId} with score {highestScore}");
+                }
+            }
+            
             var resultsData = new ResultsData();
             resultsData.WinnerId = 0;
+            
+            Debug.Log($"[GameManager] Building results data from {_playerResults.Count} players");
             
             foreach (var result in _playerResults.Values)
             {
@@ -460,38 +659,91 @@ namespace Multi.PR1
                 resultsData.PlayerScores.Add(result.Score);
                 if (result.IsWinner)
                     resultsData.WinnerId = result.PlayerId;
+                Debug.Log($"[GameManager] Added to resultsData: {result.Nickname} - {result.Score} pts, IsWinner={result.IsWinner}");
             }
             
+            Debug.Log($"[GameManager] ResultsData built: PlayerNames.Count={resultsData.PlayerNames.Count}, PlayerScores.Count={resultsData.PlayerScores.Count}, WinnerId={resultsData.WinnerId}");
+            
+            // Отправляем результаты всем клиентам
+            Debug.Log($"[GameManager] Sending ShowResultsClientRpc to all clients...");
             ShowResultsClientRpc(resultsData);
+            
+            // Также показываем результаты на хосте
+            if (_uiManager != null)
+            {
+                Debug.Log($"[GameManager] Starting ShowResultsOnHost coroutine...");
+                StartCoroutine(ShowResultsOnHost(resultsData));
+            }
+            else
+            {
+                Debug.LogError($"[GameManager] UIManager is NULL on host!");
+            }
+        }
+                
+        private IEnumerator ShowResultsOnHost(ResultsData resultsData)
+        {
+            Debug.Log($"[GameManager] ShowResultsOnHost - Waiting 0.2 seconds...");
+            yield return new WaitForSeconds(0.2f);
+            
+            Debug.Log($"[GameManager] ShowResultsOnHost - Showing results on host, player count: {resultsData.PlayerNames.Count}");
+            
+            if (_uiManager != null)
+            {
+                _uiManager.ShowResults(resultsData.PlayerNames.ToArray(), resultsData.PlayerScores.ToArray(), resultsData.WinnerId);
+            }
+            else
+            {
+                Debug.LogError("[GameManager] UIManager is null on host in ShowResultsOnHost!");
+            }
         }
         
         [ClientRpc]
         private void ShowResultsClientRpc(ResultsData resultsData)
         {
-            Debug.Log($"[GameManager] ShowResultsClientRpc called");
+            Debug.Log($"[GameManager] ShowResultsClientRpc called on client {NetworkManager.Singleton.LocalClientId} with {resultsData.PlayerNames.Count} players");
+            
+            for (int i = 0; i < resultsData.PlayerNames.Count; i++)
+            {
+                Debug.Log($"[GameManager] ShowResultsClientRpc data[{i}]: {resultsData.PlayerNames[i]} - {resultsData.PlayerScores[i]} pts");
+            }
+            
             if (_uiManager != null)
             {
-                _uiManager.ShowResults(resultsData.PlayerNames.ToArray(), resultsData.PlayerScores.ToArray(), resultsData.WinnerId);
+                Debug.Log($"[GameManager] Starting ShowResultsWithDelay coroutine...");
+                StartCoroutine(ShowResultsWithDelay(resultsData));
+            }
+            else
+            {
+                Debug.LogError("[GameManager] UIManager is null on client in ShowResultsClientRpc!");
             }
         }
         
-        // Раздельный рестарт: сначала клиенты, потом через 3 секунды хост
+        private IEnumerator ShowResultsWithDelay(ResultsData resultsData)
+        {
+            Debug.Log($"[GameManager] ShowResultsWithDelay - Waiting 0.3 seconds...");
+            yield return new WaitForSeconds(0.3f);
+            
+            Debug.Log($"[GameManager] ShowResultsWithDelay - Actually showing results now with {resultsData.PlayerNames.Count} players");
+            _uiManager.ShowResults(resultsData.PlayerNames.ToArray(), resultsData.PlayerScores.ToArray(), resultsData.WinnerId);
+        }
+        
         private IEnumerator RestartSceneWithDelay()
         {
+            Debug.Log($"[GameManager] RestartSceneWithDelay START");
             _isRestarting = true;
             
-            // Определяем кто мы
             bool isHost = NetworkManager.Singleton.IsHost;
+            Debug.Log($"[GameManager] IsHost: {isHost}");
             
             if (!isHost)
             {
-                // Клиент: рестартим через 1 секунду
+                Debug.Log($"[GameManager] Client: waiting 1 second before restart...");
                 yield return new WaitForSeconds(1f);
                 StartCoroutine(RestartSceneWithFade());
             }
             else
             {
-                // Хост: ждём 3 секунды и рестартим
+                Debug.Log($"[GameManager] Host: waiting 3 seconds before restart...");
                 yield return new WaitForSeconds(3f);
                 StartCoroutine(RestartSceneWithFade());
             }
@@ -499,17 +751,14 @@ namespace Multi.PR1
         
         private IEnumerator RestartSceneWithFade()
         {
+            Debug.Log($"[GameManager] RestartSceneWithFade START");
             if (_fadeStarted) yield break;
             _fadeStarted = true;
             
-            // Показываем fade экран
             yield return StartCoroutine(FadeIn());
-            
             yield return new WaitForSeconds(0.5f);
             
             Time.timeScale = 1f;
-            
-            // Включаем курсор перед перезагрузкой
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             
@@ -520,6 +769,7 @@ namespace Multi.PR1
             
             yield return null;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+            Debug.Log($"[GameManager] RestartSceneWithFade - Scene reloading...");
         }
         
         public void TogglePauseMenu()
@@ -546,10 +796,7 @@ namespace Multi.PR1
         private IEnumerator LeaveSessionWithFade()
         {
             yield return StartCoroutine(FadeIn());
-            
             yield return new WaitForSeconds(0.5f);
-            
-            Time.timeScale = 1f;
             
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
@@ -575,12 +822,14 @@ namespace Multi.PR1
         private void SetState(GameState newState)
         {
             _currentState = newState;
+            Debug.Log($"[GameManager] SetState - New state: {newState}");
             OnStateChangedClientRpc(newState);
         }
         
         [ClientRpc]
         private void OnStateChangedClientRpc(GameState newState)
         {
+            Debug.Log($"[GameManager] OnStateChangedClientRpc on client {NetworkManager.Singleton.LocalClientId}: {newState}");
             _currentState = newState;
         }
         
@@ -590,7 +839,7 @@ namespace Multi.PR1
             if (IsServer)
             {
                 _targetPlayers = Mathf.Max(2, Mathf.Min(10, count));
-                Debug.Log($"[GameManager] Target players set via RPC to: {_targetPlayers}");
+                Debug.Log($"[GameManager] SetTargetPlayersServerRpc - Target players set to: {_targetPlayers}");
             }
         }
         
@@ -601,6 +850,7 @@ namespace Multi.PR1
         
         private void OnDestroy()
         {
+            Debug.Log($"[GameManager] OnDestroy");
             Time.timeScale = 1f;
         }
         
@@ -611,6 +861,14 @@ namespace Multi.PR1
             public string Nickname;
             public int Score;
             public bool IsWinner;
+        }
+        
+        [System.Serializable]
+        public class CachedPlayerData
+        {
+            public ulong PlayerId;
+            public string Nickname;
+            public int Score;
         }
         
         [System.Serializable]
