@@ -10,139 +10,70 @@ namespace Multi.PR1
         [SerializeField] private TMP_InputField _nicknameInput;
         [SerializeField] private TMP_InputField _ipAddressInput;
         [SerializeField] private TMP_InputField _playerCountInput;
-        [SerializeField] private GameObject _menuPanel;
-        [SerializeField] private GameObject _connectingPanel;
-        [SerializeField] private TMP_Text _connectingStatusText;
+        [SerializeField] private GameObject _lobbyPanel;
 
         public static string PlayerNickname { get; private set; } = "Player";
         
-        private bool _isConnecting = false;
-
         private void Start()
         {
-            if (_menuPanel != null)
-                _menuPanel.SetActive(true);
+            if (_lobbyPanel != null)
+                _lobbyPanel.SetActive(true);
                 
-            if (_connectingPanel != null)
-                _connectingPanel.SetActive(false);
-                
-            // Установка IP по умолчанию (локальный хост)
-            if (_ipAddressInput != null)
+            if (_ipAddressInput != null && string.IsNullOrEmpty(_ipAddressInput.text))
                 _ipAddressInput.text = "127.0.0.1";
                 
-            // Количество игроков по умолчанию
-            if (_playerCountInput != null)
+            if (_playerCountInput != null && string.IsNullOrEmpty(_playerCountInput.text))
                 _playerCountInput.text = "2";
+                
+            // Включаем курсор
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            Time.timeScale = 1f;
         }
 
         public void StartAsHost()
         {
-            if (_isConnecting) return;
-            
             SaveNickname();
             int playerCount = GetPlayerCount();
             
-            // Устанавливаем количество игроков в GameManager
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.SetTargetPlayersServerRpc(playerCount);
             }
             
-            // Настраиваем транспорт для хоста (слушаем все интерфейсы)
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             if (transport != null)
             {
                 transport.SetConnectionData("0.0.0.0", 7777);
             }
             
-            _isConnecting = true;
-            ShowConnectingStatus($"Starting host... Waiting for {playerCount} players");
-            
-            NetworkManager.Singleton.OnClientConnectedCallback += OnHostReady;
             NetworkManager.Singleton.StartHost();
             
+            // Скрываем лобби сразу при старте
+            if (_lobbyPanel != null)
+                _lobbyPanel.SetActive(false);
+            
             Debug.Log($"Started as Host with nickname: {PlayerNickname}, waiting for {playerCount} players");
-        }
-        
-        private void OnHostReady(ulong clientId)
-        {
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnHostReady;
-            _isConnecting = false;
-            HideMenu();
         }
 
         public void StartAsClient()
         {
-            if (_isConnecting) return;
-            
             SaveNickname();
             string ipAddress = GetIpAddress();
             
-            // Настраиваем транспорт для клиента
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             if (transport != null)
             {
                 transport.SetConnectionData(ipAddress, 7777);
             }
             
-            _isConnecting = true;
-            ShowConnectingStatus($"Connecting to {ipAddress}...");
-            
-            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
-            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
             NetworkManager.Singleton.StartClient();
             
+            // Скрываем лобби сразу при старте
+            if (_lobbyPanel != null)
+                _lobbyPanel.SetActive(false);
+            
             Debug.Log($"Started as Client with nickname: {PlayerNickname}, connecting to {ipAddress}");
-        }
-        
-        private void OnClientConnected(ulong clientId)
-        {
-            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
-            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
-            _isConnecting = false;
-            HideMenu();
-        }
-        
-        private void OnClientDisconnected(ulong clientId)
-        {
-            if (_isConnecting)
-            {
-                _isConnecting = false;
-                ShowConnectingStatus("Connection failed! Check IP address and try again.", true);
-                
-                // Возвращаемся в меню через 2 секунды
-                Invoke(nameof(ResetToMenu), 2f);
-            }
-        }
-        
-        private void ResetToMenu()
-        {
-            if (_connectingPanel != null)
-                _connectingPanel.SetActive(false);
-            if (_menuPanel != null)
-                _menuPanel.SetActive(true);
-        }
-
-        public void StartAsServer()
-        {
-            if (_isConnecting) return;
-            
-            SaveNickname();
-            
-            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-            if (transport != null)
-            {
-                transport.SetConnectionData("0.0.0.0", 7777);
-            }
-            
-            _isConnecting = true;
-            ShowConnectingStatus("Starting server only...");
-            
-            NetworkManager.Singleton.StartServer();
-            _isConnecting = false;
-            HideMenu();
-            
-            Debug.Log("Started as Server only");
         }
 
         private void SaveNickname()
@@ -173,30 +104,6 @@ namespace Multi.PR1
                 }
             }
             return 2;
-        }
-        
-        private void ShowConnectingStatus(string message, bool isError = false)
-        {
-            if (_connectingPanel != null)
-            {
-                _connectingPanel.SetActive(true);
-                if (_connectingStatusText != null)
-                {
-                    _connectingStatusText.text = message;
-                    _connectingStatusText.color = isError ? Color.red : Color.white;
-                }
-            }
-            
-            if (_menuPanel != null)
-                _menuPanel.SetActive(false);
-        }
-
-        private void HideMenu()
-        {
-            if (_menuPanel != null)
-                _menuPanel.SetActive(false);
-            if (_connectingPanel != null)
-                _connectingPanel.SetActive(false);
         }
     }
 }

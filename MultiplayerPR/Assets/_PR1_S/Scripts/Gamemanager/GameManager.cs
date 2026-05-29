@@ -12,7 +12,7 @@ namespace Multi.PR1
         
         [Header("Game Settings")]
         [SerializeField] private int _targetPlayers = 2;
-        [SerializeField] private float _gameDuration = 180f; // 3 минуты
+        [SerializeField] private float _gameDuration = 180f;
         [SerializeField] private float _resultsDuration = 10f;
         [SerializeField] private float _countdownDuration = 3f;
         
@@ -23,9 +23,6 @@ namespace Multi.PR1
         [SerializeField] private CanvasGroup _fadeCanvas;
         [SerializeField] private float _fadeDuration = 0.5f;
         
-        [Header("Audio")]
-        [SerializeField] private AudioSource _gameAudioSource;
-
         [Header("References")]
         [SerializeField] private CheckpointManager _checkpointManager;
         
@@ -33,11 +30,11 @@ namespace Multi.PR1
         private float _gameTimeRemaining;
         private float _resultsTimeRemaining;
         private bool _isGameFinished = false;
+        private bool _countdownStarted = false;
         private Dictionary<ulong, PlayerResultData> _playerResults = new Dictionary<ulong, PlayerResultData>();
         
-        // Свойства для доступа из других скриптов
         public GameState CurrentState => _currentState;
-        public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results || (_currentState == GameState.Lobby && !IsServer);
+        public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results;
         public float GameTimeRemaining => _gameTimeRemaining;
         
         private void Awake()
@@ -53,23 +50,29 @@ namespace Multi.PR1
         
         public override void OnNetworkSpawn()
         {
+            Debug.Log($"[GameManager] OnNetworkSpawn - IsServer: {IsServer}, IsClient: {IsClient}");
+            
+            if (_uiManager == null)
+                _uiManager = FindObjectOfType<GameUIManager>();
+            
             if (IsServer)
             {
                 NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
                 NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
                 
-                // Начинаем в лобби
                 SetState(GameState.Lobby);
                 UpdateLobbyUI();
             }
-            
-            // Включаем аудио позже, при старте гонки
-            if (_gameAudioSource != null)
-                _gameAudioSource.enabled = false;
-                
-            // Ищем UIManager если не назначен
-            if (_uiManager == null)
-                _uiManager = FindObjectOfType<GameUIManager>();
+            else
+            {
+                // Клиент: показываем Game UI с текстом ожидания
+                if (_uiManager != null)
+                {
+                    _uiManager.ShowLobbyUI(false);
+                    _uiManager.ShowGameUI(true);
+                    _uiManager.UpdateWaitingPlayersText(0, _targetPlayers);
+                }
+            }
         }
         
         public override void OnNetworkDespawn()
@@ -85,7 +88,8 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
-            // Инициализируем прогресс игрока в чекпоинтах
+            Debug.Log($"[GameManager] Client {clientId} connected. Current players: {NetworkManager.Singleton.ConnectedClients.Count}/{_targetPlayers}");
+            
             if (_checkpointManager != null)
             {
                 _checkpointManager.InitializePlayerProgress(clientId);
@@ -93,9 +97,9 @@ namespace Multi.PR1
             
             UpdateLobbyUI();
             
-            // Проверяем, достигнуто ли нужное количество игроков
-            if (_currentState == GameState.Lobby && NetworkManager.Singleton.ConnectedClients.Count >= _targetPlayers)
+            if (_currentState == GameState.Lobby && NetworkManager.Singleton.ConnectedClients.Count >= _targetPlayers && !_countdownStarted)
             {
+                Debug.Log($"[GameManager] Target players reached! Starting countdown...");
                 StartCountdown();
             }
         }
@@ -104,19 +108,20 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
-            // Очищаем прогресс игрока
+            Debug.Log($"[GameManager] Client {clientId} disconnected");
+            
             if (_checkpointManager != null)
             {
                 _checkpointManager.ResetPlayerProgress(clientId);
             }
             
-            // Если игрок отключился во время игры - завершаем матч
             if (_currentState == GameState.Playing || _currentState == GameState.Starting)
             {
                 StartCoroutine(EndGameWithDelay());
             }
             else if (_currentState == GameState.Lobby)
             {
+                _countdownStarted = false;
                 UpdateLobbyUI();
             }
         }
@@ -126,34 +131,37 @@ namespace Multi.PR1
             if (!IsServer) return;
             
             int currentPlayers = NetworkManager.Singleton.ConnectedClients.Count;
+            Debug.Log($"[GameManager] UpdateLobbyUI - Players: {currentPlayers}/{_targetPlayers}");
             
-            // Обновляем UI через UIManager на всех клиентах
-            UpdateLobbyUIClientRpc(currentPlayers, _targetPlayers);
+            UpdateWaitingTextClientRpc(currentPlayers, _targetPlayers);
         }
         
         [ClientRpc]
-        private void UpdateLobbyUIClientRpc(int current, int target)
+        private void UpdateWaitingTextClientRpc(int current, int target)
         {
             if (_uiManager != null)
+            {
+                // Скрываем лобби и показываем Game UI при первом подключении
+                if (current == 1 && !IsServer)
+                {
+                    _uiManager.ShowLobbyUI(false);
+                    _uiManager.ShowGameUI(true);
+                }
                 _uiManager.UpdateWaitingPlayersText(current, target);
+            }
         }
         
         private void StartCountdown()
         {
             if (!IsServer) return;
+            if (_countdownStarted) return;
             
+            _countdownStarted = true;
             SetState(GameState.Starting);
-            StartCoroutine(CountdownCoroutine());
             
-            // Активируем аудио для всех
-            EnableAudioClientRpc(true);
-        }
-        
-        [ClientRpc]
-        private void EnableAudioClientRpc(bool enable)
-        {
-            if (_gameAudioSource != null)
-                _gameAudioSource.enabled = enable;
+            Debug.Log($"[GameManager] Starting countdown!");
+            
+            StartCoroutine(CountdownCoroutine());
         }
         
         private IEnumerator CountdownCoroutine()
@@ -162,21 +170,16 @@ namespace Multi.PR1
             
             while (countdown > 0)
             {
+                Debug.Log($"[GameManager] Countdown: {countdown}");
                 UpdateCountdownClientRpc(countdown);
-
                 yield return new WaitForSeconds(1f);
                 countdown--;
             }
             
-            // GO!
             UpdateCountdownClientRpc(-1f);
-
             yield return new WaitForSeconds(0.5f);
             
-            // Скрываем текст
             UpdateCountdownClientRpc(0f);
-            
-            // Начинаем игру
             StartGame();
         }
         
@@ -191,26 +194,34 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
+            Debug.Log($"[GameManager] Starting game!");
+            
             SetState(GameState.Playing);
             _gameTimeRemaining = _gameDuration;
             _isGameFinished = false;
             
-            StartGameClientRpc();
+            // Скрываем текст ожидания
+            HideWaitingTextClientRpc();
+            
+            UpdateGameStateClientRpc("RACING", Color.green);
         }
         
         [ClientRpc]
-        private void StartGameClientRpc()
+        private void HideWaitingTextClientRpc()
         {
             if (_uiManager != null)
-            {
-                _uiManager.ShowGameUI(true);
-                _uiManager.ShowLobbyUI(false);
-            }
+                _uiManager.UpdateWaitingPlayersText(_targetPlayers, _targetPlayers); // Скрывает текст
+        }
+        
+        [ClientRpc]
+        private void UpdateGameStateClientRpc(string stateText, Color stateColor)
+        {
+            if (_uiManager != null)
+                _uiManager.UpdateGameStateText(stateText, stateColor);
         }
         
         private void Update()
         {
-            // Обновление таймера на сервере
             if (_currentState == GameState.Playing && IsServer)
             {
                 _gameTimeRemaining -= Time.deltaTime;
@@ -219,6 +230,7 @@ namespace Multi.PR1
                 if (_gameTimeRemaining <= 0 && !_isGameFinished)
                 {
                     _isGameFinished = true;
+                    Debug.Log($"[GameManager] Time's up!");
                     StartCoroutine(EndGameWithDelay());
                 }
             }
@@ -249,9 +261,7 @@ namespace Multi.PR1
             
             Debug.Log($"[GameManager] Player {winnerId} finished the race!");
             
-            // Собираем результаты
             CollectResults();
-            
             StartCoroutine(EndGameWithDelay());
         }
         
@@ -284,7 +294,6 @@ namespace Multi.PR1
                 }
             }
             
-            // Находим победителя (по очкам)
             ulong winnerId = 0;
             int highestScore = -1;
             foreach (var result in _playerResults)
@@ -310,10 +319,14 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             
+            Debug.Log($"[GameManager] Ending game!");
+            
             SetState(GameState.Results);
             _resultsTimeRemaining = _resultsDuration;
             
-            // Создаём сериализуемый объект с результатами
+            // Скрываем Game UI
+            HideGameUIClientRpc();
+            
             var resultsData = new ResultsData();
             resultsData.WinnerId = 0;
             
@@ -325,8 +338,14 @@ namespace Multi.PR1
                     resultsData.WinnerId = result.PlayerId;
             }
             
-            // Показываем результаты через UIManager
             ShowResultsClientRpc(resultsData);
+        }
+        
+        [ClientRpc]
+        private void HideGameUIClientRpc()
+        {
+            if (_uiManager != null)
+                _uiManager.ShowGameUI(false);
         }
         
         [ClientRpc]
@@ -338,7 +357,6 @@ namespace Multi.PR1
         
         private IEnumerator RestartSceneWithFade()
         {
-            // Затемнение
             float elapsed = 0;
             while (elapsed < _fadeDuration)
             {
@@ -353,15 +371,24 @@ namespace Multi.PR1
                 
             yield return new WaitForSeconds(0.1f);
             
-            // Возвращаем время в нормальное состояние
             Time.timeScale = 1f;
             
-            // Отключаем NetworkManager
+            // Включаем курсор перед перезагрузкой
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            
             NetworkManager.Singleton.Shutdown();
             yield return null;
-            
-            // Перезапускаем сцену
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        public void ResumeGame()
+        {
+            if (_uiManager != null)
+                _uiManager.SetPauseMenuActive(false);
+            Time.timeScale = 1f;
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
         
         public void LeaveSession()
@@ -386,6 +413,9 @@ namespace Multi.PR1
                 _fadeCanvas.alpha = 1;
                 
             yield return new WaitForSeconds(0.1f);
+            
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
             
             NetworkManager.Singleton.Shutdown();
             yield return null;
@@ -439,7 +469,6 @@ namespace Multi.PR1
             public bool IsWinner;
         }
         
-        // Сериализуемый класс для передачи результатов через RPC
         [System.Serializable]
         public class ResultsData : INetworkSerializable
         {
@@ -449,7 +478,6 @@ namespace Multi.PR1
             
             public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
             {
-                // Сериализуем количество игроков
                 int count = PlayerNames.Count;
                 serializer.SerializeValue(ref count);
                 

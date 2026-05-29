@@ -30,14 +30,12 @@ namespace Multi.PR1
                 _playerNetwork.Ammo.OnValueChanged += OnAmmoChanged;
                 _playerNetwork.Score.OnValueChanged += OnScoreChanged;
                 
-                // Initial setup
                 OnNicknameChanged(default, _playerNetwork.Nickname.Value);
                 OnHealthChanged(0, _playerNetwork.Health.Value);
                 OnAmmoChanged(0, _playerNetwork.Ammo.Value);
                 OnScoreChanged(0, _playerNetwork.Score.Value);
             }
             
-            // Billboard UI для отображения над машиной
             if (_billboardObject != null)
             {
                 BillboardUI billboard = _billboardObject.GetComponent<BillboardUI>();
@@ -69,7 +67,6 @@ namespace Multi.PR1
             {
                 _hpText.text = $"HP: {newValue}/100";
                 
-                // Меняем цвет в зависимости от здоровья
                 if (newValue <= 25)
                     _hpText.color = Color.red;
                 else if (newValue <= 50)
@@ -85,8 +82,10 @@ namespace Multi.PR1
             {
                 _ammoText.text = $"Ammo: {newValue}/10";
                 
-                if (newValue <= 3)
+                if (newValue <= 0)
                     _ammoText.color = Color.red;
+                else if (newValue <= 3)
+                    _ammoText.color = Color.yellow;
                 else
                     _ammoText.color = Color.white;
             }
@@ -95,7 +94,10 @@ namespace Multi.PR1
         private void OnScoreChanged(int oldValue, int newValue)
         {
             if (_scoreText != null)
-                _scoreText.text = $"{newValue}";
+            {
+                _scoreText.text = $"Score: {newValue}";
+                _scoreText.color = Color.white;
+            }
         }
     }
 }

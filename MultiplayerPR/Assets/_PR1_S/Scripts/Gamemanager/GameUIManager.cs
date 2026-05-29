@@ -1,10 +1,11 @@
-﻿using TMPro;
+﻿using System;
+using TMPro;
 using UnityEngine;
-using Unity.Netcode;
+using System.Collections.Generic;
 
 namespace Multi.PR1
 {
-    public class GameUIManager : NetworkBehaviour
+    public class GameUIManager : MonoBehaviour
     {
         [Header("Game Status UI")]
         [SerializeField] private TMP_Text _gameStateText;
@@ -14,67 +15,93 @@ namespace Multi.PR1
         [Header("Countdown UI")]
         [SerializeField] private TMP_Text _countdownText;
         
+        [Header("Game UI (ожидание игроков здесь)")]
+        [SerializeField] private GameObject _gameUIPanel;
+        [SerializeField] private TMP_Text _waitingForPlayersText;
+        
         [Header("Results UI")]
         [SerializeField] private GameObject _resultsPanel;
         [SerializeField] private Transform _resultsContainer;
         [SerializeField] private GameObject _resultEntryPrefab;
         
-        [Header("Lobby UI")]
+        [Header("Lobby UI (только кнопки подключения)")]
         [SerializeField] private GameObject _lobbyPanel;
-        [SerializeField] private TMP_Text _waitingForPlayersText;
         
         [Header("Pause Menu")]
         [SerializeField] private GameObject _pauseMenuPanel;
         
-        private float _cachedTimeRemaining;
-        
         private void Start()
         {
-            // Изначально показываем только лобби
-            ShowLobbyUI(true);
-            ShowGameUI(false);
-            ShowResultsUI(false);
-            
-            if (_countdownText != null)
-                _countdownText.gameObject.SetActive(false);
+            // Показываем только лобби при старте
+            if (_lobbyPanel != null)
+                _lobbyPanel.SetActive(true);
+                
+            if (_gameUIPanel != null)
+                _gameUIPanel.SetActive(false);
+                
+            if (_resultsPanel != null)
+                _resultsPanel.SetActive(false);
                 
             if (_pauseMenuPanel != null)
                 _pauseMenuPanel.SetActive(false);
+                
+            if (_countdownText != null)
+                _countdownText.gameObject.SetActive(false);
+                
+            // Включаем курсор при старте
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            Time.timeScale = 1f;
+            
+            Debug.Log("[GameUIManager] Started - Lobby visible");
         }
-        
-        private void Update()
+
+        private void LateUpdate()
         {
-            // Обновление UI в зависимости от состояния GameManager
-            if (GameManager.Instance != null)
-            {
-                UpdateGameStateDisplay();
-                UpdateInputBlockedDisplay();
-            }
+            throw new NotImplementedException();
         }
-        
+
         public void ShowLobbyUI(bool show)
         {
             if (_lobbyPanel != null)
+            {
                 _lobbyPanel.SetActive(show);
+                Debug.Log($"[GameUIManager] Lobby UI: {show}");
+            }
         }
         
         public void ShowGameUI(bool show)
         {
-            if (_gameStateText != null)
-                _gameStateText.transform.parent.gameObject.SetActive(show);
+            if (_gameUIPanel != null)
+            {
+                _gameUIPanel.SetActive(show);
+                Debug.Log($"[GameUIManager] Game UI Panel: {show}");
+            }
         }
         
         public void ShowResultsUI(bool show)
         {
             if (_resultsPanel != null)
+            {
                 _resultsPanel.SetActive(show);
+                Debug.Log($"[GameUIManager] Results UI: {show}");
+            }
         }
         
         public void UpdateWaitingPlayersText(int currentPlayers, int targetPlayers)
         {
             if (_waitingForPlayersText != null)
             {
-                _waitingForPlayersText.text = $"Waiting for players...\n{currentPlayers}/{targetPlayers}";
+                if (currentPlayers < targetPlayers)
+                {
+                    _waitingForPlayersText.text = $"Waiting for players...\n{currentPlayers}/{targetPlayers}";
+                    _waitingForPlayersText.gameObject.SetActive(true);
+                }
+                else
+                {
+                    _waitingForPlayersText.gameObject.SetActive(false);
+                }
+                Debug.Log($"[GameUIManager] Waiting text: {currentPlayers}/{targetPlayers}");
             }
         }
         
@@ -86,51 +113,39 @@ namespace Multi.PR1
             {
                 _countdownText.gameObject.SetActive(true);
                 int displayValue = Mathf.CeilToInt(remainingTime);
+                _countdownText.text = displayValue.ToString();
+                _countdownText.fontSize = 80;
+                _countdownText.color = Color.white;
                 
-                if (displayValue > 0)
-                {
-                    _countdownText.text = displayValue.ToString();
-                    _countdownText.fontSize = 80;
-                    _countdownText.color = Color.white;
-                    
-                    // Эффект пульсации при каждой секунде
-                    StartCoroutine(PulseCountdown());
-                }
+                if (_inputBlockedOverlay != null)
+                    _inputBlockedOverlay.SetActive(true);
             }
-            else if (remainingTime > -0.5f)
+            else if (remainingTime < 0 && remainingTime > -1f)
             {
                 _countdownText.text = "GO!";
                 _countdownText.fontSize = 100;
                 _countdownText.color = Color.green;
             }
-            else
+            else if (remainingTime == 0f)
             {
                 _countdownText.gameObject.SetActive(false);
+                
+                if (_inputBlockedOverlay != null)
+                    _inputBlockedOverlay.SetActive(false);
             }
-        }
-        
-        private System.Collections.IEnumerator PulseCountdown()
-        {
-            Vector3 originalScale = _countdownText.transform.localScale;
-            _countdownText.transform.localScale = originalScale * 1.3f;
-            yield return new WaitForSeconds(0.1f);
-            _countdownText.transform.localScale = originalScale;
         }
         
         public void UpdateGameTimer(float timeRemaining)
         {
             if (_timerText == null) return;
             
-            _cachedTimeRemaining = timeRemaining;
             int minutes = Mathf.FloorToInt(timeRemaining / 60f);
             int seconds = Mathf.FloorToInt(timeRemaining % 60f);
             _timerText.text = $"{minutes:00}:{seconds:00}";
             
-            // Меняем цвет при остатке менее 30 секунд
             if (timeRemaining <= 30f)
             {
                 _timerText.color = Color.red;
-                // Мигание при последних 10 секундах
                 if (timeRemaining <= 10f)
                 {
                     float alpha = Mathf.PingPong(Time.time * 3f, 1f);
@@ -144,60 +159,24 @@ namespace Multi.PR1
             }
         }
         
-        private void UpdateGameStateDisplay()
+        public void UpdateGameStateText(string stateText, Color stateColor)
         {
-            if (_gameStateText == null) return;
-            
-            string stateText = "";
-            Color stateColor = Color.white;
-            
-            switch (GameManager.Instance.CurrentState)
+            if (_gameStateText != null)
             {
-                case GameState.Lobby:
-                    stateText = "LOBBY";
-                    stateColor = Color.yellow;
-                    ShowLobbyUI(true);
-                    ShowGameUI(false);
-                    ShowResultsUI(false);
-                    break;
-                case GameState.Starting:
-                    stateText = "STARTING...";
-                    stateColor = Color.cyan;
-                    ShowLobbyUI(false);
-                    ShowGameUI(true);
-                    ShowResultsUI(false);
-                    break;
-                case GameState.Playing:
-                    stateText = "RACING";
-                    stateColor = Color.green;
-                    ShowLobbyUI(false);
-                    ShowGameUI(true);
-                    ShowResultsUI(false);
-                    break;
-                case GameState.Results:
-                    stateText = "GAME OVER";
-                    stateColor = Color.red;
-                    ShowLobbyUI(false);
-                    ShowGameUI(false);
-                    ShowResultsUI(true);
-                    break;
+                _gameStateText.text = stateText;
+                _gameStateText.color = stateColor;
             }
-            
-            _gameStateText.text = stateText;
-            _gameStateText.color = stateColor;
-        }
-        
-        private void UpdateInputBlockedDisplay()
-        {
-            if (_inputBlockedOverlay == null) return;
-            
-            bool isBlocked = GameManager.Instance.IsInputBlocked;
-            _inputBlockedOverlay.SetActive(isBlocked && GameManager.Instance.CurrentState != GameState.Lobby);
         }
         
         public void ShowResults(string[] playerNames, int[] playerScores, ulong winnerId)
         {
-            if (_resultsContainer == null || _resultEntryPrefab == null) return;
+            Debug.Log($"[GameUIManager] Showing results for {playerNames.Length} players");
+            
+            if (_resultsContainer == null || _resultEntryPrefab == null)
+            {
+                Debug.LogError("[GameUIManager] Results container or prefab is null!");
+                return;
+            }
             
             // Очищаем контейнер
             foreach (Transform child in _resultsContainer)
@@ -205,52 +184,49 @@ namespace Multi.PR1
                 Destroy(child.gameObject);
             }
             
-            // Сортируем по очкам (по убыванию)
-            var results = new System.Collections.Generic.List<(string name, int score, bool isWinner)>();
+            var results = new List<(string name, int score)>();
             for (int i = 0; i < playerNames.Length; i++)
             {
-                results.Add((playerNames[i], playerScores[i], false));
+                results.Add((playerNames[i], playerScores[i]));
             }
             results.Sort((a, b) => b.score.CompareTo(a.score));
             
-            // Отмечаем победителя
             for (int i = 0; i < results.Count; i++)
-            {
-                var result = results[i];
-                result.isWinner = (i == 0);
-                results[i] = result;
-            }
-            
-            // Создаём записи
-            foreach (var result in results)
             {
                 GameObject entry = Instantiate(_resultEntryPrefab, _resultsContainer);
                 TMP_Text entryText = entry.GetComponent<TMP_Text>();
                 if (entryText != null)
                 {
-                    string prefix = result.isWinner ? "🏆 " : "";
-                    entryText.text = $"{prefix}{result.name}: {result.score} pts";
-                    
-                    if (result.isWinner)
-                        entryText.color = Color.yellow;
-                    else
-                        entryText.color = Color.white;
+                    string prefix = (i == 0) ? "🏆 " : "";
+                    entryText.text = $"{prefix}{results[i].name}: {results[i].score} pts";
+                    entryText.color = (i == 0) ? Color.yellow : Color.white;
+                    entryText.fontSize = (i == 0) ? 36 : 28;
                 }
             }
         }
         
         public void TogglePauseMenu()
         {
-            if (_pauseMenuPanel == null) return;
+            if (_pauseMenuPanel == null)
+            {
+                Debug.LogWarning("[GameUIManager] Pause menu panel not assigned!");
+                return;
+            }
             
             bool isActive = !_pauseMenuPanel.activeSelf;
             _pauseMenuPanel.SetActive(isActive);
+            Debug.Log($"[GameUIManager] Pause menu: {(isActive ? "opened" : "closed")}");
         }
         
         public void SetPauseMenuActive(bool active)
         {
             if (_pauseMenuPanel != null)
                 _pauseMenuPanel.SetActive(active);
+        }
+        
+        private void OnDestroy()
+        {
+            Time.timeScale = 1f;
         }
     }
 }
