@@ -96,6 +96,7 @@ namespace Multi.PR1
         private PlayerCombat _playerCombat;
         private PlayerInputHandler _playerInput;
         private NetworkCarController _carController;
+        private CheckpointManager _checkpointManager;
         private float _lastShootTime;
         private Color _originalColor;
         private Material _material;
@@ -120,6 +121,12 @@ namespace Multi.PR1
         public override void OnNetworkSpawn()
         {
             Debug.Log($"[PlayerNetwork] OnNetworkSpawn - ClientId: {OwnerClientId}, IsOwner: {IsOwner}, IsServer: {IsServer}");
+            
+            // Находим CheckpointManager
+            if (_checkpointManager == null)
+            {
+                _checkpointManager = FindObjectOfType<CheckpointManager>();
+            }
             
             if (IsOwner)
             {
@@ -164,6 +171,12 @@ namespace Multi.PR1
             {
                 SetDeadColorClientRpc();
             }
+            
+            // Подписываемся на событие финиша гонки
+            if (IsOwner && _checkpointManager != null)
+            {
+                _checkpointManager.OnPlayerFinished += OnPlayerFinished;
+            }
         }
 
         public override void OnNetworkDespawn()
@@ -186,6 +199,31 @@ namespace Multi.PR1
                 
             if (_forceSpawnSyncCoroutine != null)
                 StopCoroutine(_forceSpawnSyncCoroutine);
+            
+            // Отписываемся от события финиша
+            if (_checkpointManager != null)
+            {
+                _checkpointManager.OnPlayerFinished -= OnPlayerFinished;
+            }
+        }
+        
+        // ==================== RACE FINISH ====================
+        
+        private void OnPlayerFinished(PlayerNetwork player)
+        {
+            if (player == this && IsOwner)
+            {
+                RequestFinishRaceServerRpc();
+            }
+        }
+        
+        [ServerRpc(RequireOwnership = false)]
+        public void RequestFinishRaceServerRpc()
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.RequestFinishRaceServerRpc(OwnerClientId);
+            }
         }
 
         // ==================== CAR SYNC - CLIENTRPC METHODS ====================
