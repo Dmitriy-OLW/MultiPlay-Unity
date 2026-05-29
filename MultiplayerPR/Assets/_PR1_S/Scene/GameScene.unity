@@ -13927,7 +13927,7 @@ MonoBehaviour:
   - {fileID: 1798646017}
   - {fileID: 449481512}
   - {fileID: 2050581361}
-  _totalLaps: 2
+  _totalLaps: 3
   _checkpointPoints: 1
   _raceFinishBonus: 10
   _stateSyncRate: 0.2
@@ -17867,9 +17867,9 @@ AudioSource:
   serializedVersion: 4
   OutputAudioMixerGroup: {fileID: 0}
   m_audioClip: {fileID: 0}
-  m_Resource: {fileID: 8300000, guid: b33e4d73216a04b4dbd157890fde7fca, type: 3}
+  m_Resource: {fileID: 8300000, guid: a1f0f044910a6574089dadfb97829a1d, type: 3}
   m_PlayOnAwake: 0
-  m_Volume: 0.2
+  m_Volume: 0.1
   m_Pitch: 1
   Loop: 1
   Mute: 0
@@ -21222,7 +21222,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
   _targetPlayers: 2
-  _gameDuration: 10
+  _gameDuration: 300
   _resultsDuration: 10
   _countdownDuration: 3
   _uiManager: {fileID: 402601856}
