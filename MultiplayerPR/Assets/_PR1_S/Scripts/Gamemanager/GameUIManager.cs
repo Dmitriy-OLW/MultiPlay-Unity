@@ -21,17 +21,19 @@ namespace Multi.PR1
         [Header("Results UI")]
         [SerializeField] private GameObject _resultsPanel;
         [SerializeField] private Transform _resultsContainer;
-        [SerializeField] private GameObject _resultEntryPrefab; // Должен содержать TMP_Text компонент!
+        [SerializeField] private GameObject _resultEntryPrefab;
         
-        [Header("Lobby UI (только кнопки подключения)")]
+        [Header("Lobby UI")]
         [SerializeField] private GameObject _lobbyPanel;
         
         [Header("Pause Menu")]
         [SerializeField] private GameObject _pauseMenuPanel;
         
+        [Header("Music")]
+        [SerializeField] private AudioSource _backgroundMusic;
+        
         private void Start()
         {
-            // Показываем только лобби при старте
             if (_lobbyPanel != null)
                 _lobbyPanel.SetActive(true);
                 
@@ -47,17 +49,39 @@ namespace Multi.PR1
             if (_countdownText != null)
                 _countdownText.gameObject.SetActive(false);
                 
-            // Включаем курсор при старте
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             Time.timeScale = 1f;
             
+            // Останавливаем музыку при старте
+            if (_backgroundMusic != null)
+            {
+                _backgroundMusic.Stop();
+            }
+            
             Debug.Log("[GameUIManager] Started - Lobby visible");
+        }
+        
+        public void StartBackgroundMusic()
+        {
+            if (_backgroundMusic != null && !_backgroundMusic.isPlaying)
+            {
+                _backgroundMusic.Play();
+                Debug.Log("[GameUIManager] Background music started");
+            }
+        }
+        
+        public void StopBackgroundMusic()
+        {
+            if (_backgroundMusic != null && _backgroundMusic.isPlaying)
+            {
+                _backgroundMusic.Stop();
+                Debug.Log("[GameUIManager] Background music stopped");
+            }
         }
         
         private void LateUpdate()
         {
-            // Обработка нажатия ESC для открытия меню паузы
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (GameManager.Instance != null)
@@ -188,10 +212,7 @@ namespace Multi.PR1
                 return;
             }
             
-            // Сначала скрываем Game UI
             ShowGameUI(false);
-            
-            // Показываем Results UI
             ShowResultsUI(true);
             
             if (_resultsContainer == null)
@@ -206,27 +227,22 @@ namespace Multi.PR1
                 return;
             }
             
-            // Очищаем контейнер
             foreach (Transform child in _resultsContainer)
             {
                 Destroy(child.gameObject);
             }
             
-            // Сортируем результаты по убыванию очков
-            var results = new List<(string name, int score)>();
+            var results = new List<(string name, int score, ulong playerId)>();
             for (int i = 0; i < playerNames.Length; i++)
             {
-                results.Add((playerNames[i], playerScores[i]));
-                Debug.Log($"[GameUIManager] Player {i}: {playerNames[i]} - {playerScores[i]} pts");
+                results.Add((playerNames[i], playerScores[i], (ulong)i));
             }
             results.Sort((a, b) => b.score.CompareTo(a.score));
             
-            // Создаём записи для каждого игрока
             for (int i = 0; i < results.Count; i++)
             {
                 GameObject entry = Instantiate(_resultEntryPrefab, _resultsContainer);
                 
-                // Ищем TMP_Text в prefab'е (сначала в корне, потом в детях)
                 TMP_Text entryText = entry.GetComponent<TMP_Text>();
                 if (entryText == null)
                 {
@@ -235,16 +251,16 @@ namespace Multi.PR1
                 
                 if (entryText != null)
                 {
-                    string prefix = (i == 0) ? "🏆 " : "";
-                    string suffix = (i == 0) ? " - WINNER!" : "";
-                    entryText.text = $"{prefix}{results[i].name}: {results[i].score} pts{suffix}";
+                    int place = i + 1;
+                    string winnerText = (i == 0) ? " - WINNER!" : "";
+                    entryText.text = $"{place}. {results[i].name}: {results[i].score} pts{winnerText}";
                     entryText.color = (i == 0) ? Color.yellow : Color.white;
                     entryText.fontSize = (i == 0) ? 36 : 28;
                     Debug.Log($"[GameUIManager] Created result entry: {entryText.text}");
                 }
                 else
                 {
-                    Debug.LogError($"[GameUIManager] Result entry prefab has no TMP_Text component! Please check the prefab.");
+                    Debug.LogError($"[GameUIManager] Result entry prefab has no TMP_Text component!");
                 }
             }
             
@@ -267,12 +283,16 @@ namespace Multi.PR1
                 Time.timeScale = 0f;
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
+                if (_backgroundMusic != null)
+                    _backgroundMusic.Pause();
             }
             else
             {
                 Time.timeScale = 1f;
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
+                if (_backgroundMusic != null)
+                    _backgroundMusic.UnPause();
             }
             
             Debug.Log($"[GameUIManager] Pause menu: {(isActive ? "opened" : "closed")}");

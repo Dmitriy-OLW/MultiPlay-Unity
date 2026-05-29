@@ -17869,7 +17869,7 @@ AudioSource:
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 8300000, guid: b33e4d73216a04b4dbd157890fde7fca, type: 3}
   m_PlayOnAwake: 0
-  m_Volume: 0.1
+  m_Volume: 0.2
   m_Pitch: 1
   Loop: 1
   Mute: 0
@@ -21267,6 +21267,7 @@ MonoBehaviour:
   _resultEntryPrefab: {fileID: 4661742336988863526, guid: cd9f2a67b2c08f04e9a5f7999034049d, type: 3}
   _lobbyPanel: {fileID: 12628934}
   _pauseMenuPanel: {fileID: 39780936}
+  _backgroundMusic: {fileID: 328840379}
 --- !u!1 &402780887 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -2204117940675947502, guid: 5b381d4b31f12bf48b54c57c1b7ecaca, type: 3}

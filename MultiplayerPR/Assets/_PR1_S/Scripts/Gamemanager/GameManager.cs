@@ -37,7 +37,6 @@ namespace Multi.PR1
         private bool _fadeInProgress = false;
         private bool _resultsShown = false;
         
-        // Храним данные игроков отдельно
         private Dictionary<ulong, CachedPlayerData> _cachedPlayerData = new Dictionary<ulong, CachedPlayerData>();
         
         public GameState CurrentState => _currentState;
@@ -156,7 +155,6 @@ namespace Multi.PR1
             int currentPlayers = NetworkManager.Singleton.ConnectedClients.Count;
             Debug.Log($"[GameManager] OnClientConnected - clientId: {clientId}, Current players: {currentPlayers}/{_targetPlayers}");
             
-            // Выводим всех подключённых игроков
             foreach (var client in NetworkManager.Singleton.ConnectedClients)
             {
                 Debug.Log($"[GameManager] Connected client: {client.Key}, PlayerObject: {client.Value.PlayerObject != null}");
@@ -254,6 +252,13 @@ namespace Multi.PR1
         private IEnumerator StartCountdownWithFade()
         {
             Debug.Log($"[GameManager] StartCountdownWithFade START");
+            
+            // Запускаем музыку перед началом отсчёта
+            if (_uiManager != null)
+            {
+                _uiManager.StartBackgroundMusic();
+            }
+            
             yield return StartCoroutine(FadeIn());
             yield return new WaitForSeconds(0.5f);
             StartCountdown();
@@ -352,7 +357,6 @@ namespace Multi.PR1
             _isGameFinished = false;
             _resultsShown = false;
             
-            // Кэшируем всех игроков
             CacheAllPlayersDataAndSubscribe();
             
             HideWaitingTextClientRpc();
@@ -389,7 +393,6 @@ namespace Multi.PR1
                     
                     Debug.Log($"[GameManager] CACHED player {client.Key}: Name='{nickname}', Score={score}");
                     
-                    // Подписываемся на изменение счёта
                     player.Score.OnValueChanged += (oldScore, newScore) => OnPlayerScoreChanged(client.Key, oldScore, newScore);
                 }
                 else
@@ -504,14 +507,12 @@ namespace Multi.PR1
             Debug.Log($"[GameManager] CollectResults START");
             _playerResults.Clear();
             
-            // Сначала выводим всё из кэша
             Debug.Log($"[GameManager] Cached data count: {_cachedPlayerData.Count}");
             foreach (var cached in _cachedPlayerData.Values)
             {
                 Debug.Log($"[GameManager] Cached entry: PlayerId={cached.PlayerId}, Name={cached.Nickname}, Score={cached.Score}");
             }
             
-            // Используем кэшированные данные
             foreach (var cached in _cachedPlayerData.Values)
             {
                 PlayerResultData data = new PlayerResultData
@@ -525,53 +526,6 @@ namespace Multi.PR1
                 Debug.Log($"[GameManager] Added from CACHE: {data.Nickname} - Score: {data.Score}");
             }
             
-            // Обновляем от всё ещё подключённых игроков
-            if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients != null)
-            {
-                Debug.Log($"[GameManager] Connected clients count: {NetworkManager.Singleton.ConnectedClients.Count}");
-                
-                foreach (var client in NetworkManager.Singleton.ConnectedClients)
-                {
-                    Debug.Log($"[GameManager] Checking connected client {client.Key}");
-                    
-                    PlayerNetwork player = client.Value.PlayerObject?.GetComponent<PlayerNetwork>();
-                    if (player != null)
-                    {
-                        string nickname = player.Nickname.Value.ToString();
-                        int score = player.Score.Value;
-                        Debug.Log($"[GameManager] Connected player {client.Key}: Name={nickname}, Score={score}");
-                        
-                        if (_playerResults.ContainsKey(client.Key))
-                        {
-                            _playerResults[client.Key].Score = score;
-                            _playerResults[client.Key].Nickname = nickname;
-                            Debug.Log($"[GameManager] Updated result for {client.Key}: {nickname} - {score}");
-                        }
-                        else
-                        {
-                            PlayerResultData data = new PlayerResultData
-                            {
-                                PlayerId = client.Key,
-                                Nickname = nickname,
-                                Score = score,
-                                IsWinner = false
-                            };
-                            _playerResults[client.Key] = data;
-                            Debug.Log($"[GameManager] Added from CONNECTED: {nickname} - {score}");
-                        }
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[GameManager] Player component is NULL for connected client {client.Key}");
-                    }
-                }
-            }
-            else
-            {
-                Debug.LogWarning($"[GameManager] NetworkManager or ConnectedClients is NULL!");
-            }
-            
-            // Определяем победителя
             ulong winnerId = 0;
             int highestScore = -1;
             foreach (var result in _playerResults.Values)
@@ -611,7 +565,12 @@ namespace Multi.PR1
             SetState(GameState.Results);
             _resultsTimeRemaining = _resultsDuration;
             
-            // ПРИНУДИТЕЛЬНО собираем результаты из кэша, если _playerResults пуст
+            // Останавливаем музыку
+            if (_uiManager != null)
+            {
+                _uiManager.StopBackgroundMusic();
+            }
+            
             if (_playerResults.Count == 0 && _cachedPlayerData.Count > 0)
             {
                 Debug.Log($"[GameManager] _playerResults is empty, using _cachedPlayerData with {_cachedPlayerData.Count} entries");
@@ -629,7 +588,6 @@ namespace Multi.PR1
                     Debug.Log($"[GameManager] Added from CACHE: {data.Nickname} - Score: {data.Score}");
                 }
                 
-                // Определяем победителя
                 ulong winnerId = 0;
                 int highestScore = -1;
                 foreach (var result in _playerResults.Values)
@@ -664,11 +622,9 @@ namespace Multi.PR1
             
             Debug.Log($"[GameManager] ResultsData built: PlayerNames.Count={resultsData.PlayerNames.Count}, PlayerScores.Count={resultsData.PlayerScores.Count}, WinnerId={resultsData.WinnerId}");
             
-            // Отправляем результаты всем клиентам
             Debug.Log($"[GameManager] Sending ShowResultsClientRpc to all clients...");
             ShowResultsClientRpc(resultsData);
             
-            // Также показываем результаты на хосте
             if (_uiManager != null)
             {
                 Debug.Log($"[GameManager] Starting ShowResultsOnHost coroutine...");
@@ -679,7 +635,7 @@ namespace Multi.PR1
                 Debug.LogError($"[GameManager] UIManager is NULL on host!");
             }
         }
-                
+        
         private IEnumerator ShowResultsOnHost(ResultsData resultsData)
         {
             Debug.Log($"[GameManager] ShowResultsOnHost - Waiting 0.2 seconds...");
