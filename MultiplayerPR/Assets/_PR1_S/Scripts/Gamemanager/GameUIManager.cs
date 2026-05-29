@@ -21,7 +21,7 @@ namespace Multi.PR1
         [Header("Results UI")]
         [SerializeField] private GameObject _resultsPanel;
         [SerializeField] private Transform _resultsContainer;
-        [SerializeField] private GameObject _resultEntryPrefab;
+        [SerializeField] private GameObject _resultEntryPrefab; // Должен содержать TMP_Text компонент!
         
         [Header("Lobby UI (только кнопки подключения)")]
         [SerializeField] private GameObject _lobbyPanel;
@@ -57,9 +57,17 @@ namespace Multi.PR1
         
         private void LateUpdate()
         {
+            // Обработка нажатия ESC для открытия меню паузы
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                TogglePauseMenu();
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.TogglePauseMenu();
+                }
+                else
+                {
+                    TogglePauseMenu();
+                }
             }
         }
         
@@ -174,9 +182,21 @@ namespace Multi.PR1
         {
             Debug.Log($"[GameUIManager] Showing results for {playerNames.Length} players");
             
-            if (_resultsContainer == null || _resultEntryPrefab == null)
+            // Сначала скрываем Game UI
+            ShowGameUI(false);
+            
+            // Показываем Results UI
+            ShowResultsUI(true);
+            
+            if (_resultsContainer == null)
             {
-                Debug.LogError("[GameUIManager] Results container or prefab is null!");
+                Debug.LogError("[GameUIManager] Results container is null!");
+                return;
+            }
+            
+            if (_resultEntryPrefab == null)
+            {
+                Debug.LogError("[GameUIManager] Result entry prefab is null!");
                 return;
             }
             
@@ -196,13 +216,25 @@ namespace Multi.PR1
             for (int i = 0; i < results.Count; i++)
             {
                 GameObject entry = Instantiate(_resultEntryPrefab, _resultsContainer);
+                
+                // Ищем TMP_Text в prefab'е
                 TMP_Text entryText = entry.GetComponent<TMP_Text>();
+                if (entryText == null)
+                {
+                    entryText = entry.GetComponentInChildren<TMP_Text>();
+                }
+                
                 if (entryText != null)
                 {
                     string prefix = (i == 0) ? "🏆 " : "";
                     entryText.text = $"{prefix}{results[i].name}: {results[i].score} pts";
                     entryText.color = (i == 0) ? Color.yellow : Color.white;
                     entryText.fontSize = (i == 0) ? 36 : 28;
+                    Debug.Log($"[GameUIManager] Added result entry: {entryText.text}");
+                }
+                else
+                {
+                    Debug.LogError($"[GameUIManager] Result entry prefab has no TMP_Text component!");
                 }
             }
         }

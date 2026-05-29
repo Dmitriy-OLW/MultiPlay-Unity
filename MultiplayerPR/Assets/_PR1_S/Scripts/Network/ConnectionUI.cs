@@ -36,6 +36,8 @@ namespace Multi.PR1
             SaveNickname();
             int playerCount = GetPlayerCount();
             
+            Debug.Log($"[ConnectionUI] Starting as Host with player count: {playerCount}");
+            
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.SetTargetPlayersServerRpc(playerCount);
@@ -98,9 +100,18 @@ namespace Multi.PR1
         {
             if (_playerCountInput != null)
             {
-                if (int.TryParse(_playerCountInput.text, out int count))
+                string text = _playerCountInput.text.Trim();
+                Debug.Log($"[ConnectionUI] Parsing player count from: '{text}'");
+                
+                if (int.TryParse(text, out int count))
                 {
-                    return Mathf.Max(2, Mathf.Min(10, count));
+                    int clamped = Mathf.Max(2, Mathf.Min(10, count));
+                    Debug.Log($"[ConnectionUI] Parsed: {count}, Clamped: {clamped}");
+                    return clamped;
+                }
+                else
+                {
+                    Debug.LogWarning($"[ConnectionUI] Failed to parse '{text}', using default 2");
                 }
             }
             return 2;

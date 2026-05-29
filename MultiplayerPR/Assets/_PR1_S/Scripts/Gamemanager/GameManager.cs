@@ -33,6 +33,7 @@ namespace Multi.PR1
         private bool _countdownStarted = false;
         private Dictionary<ulong, PlayerResultData> _playerResults = new Dictionary<ulong, PlayerResultData>();
         private bool _isRestarting = false;
+        private bool _fadeStarted = false;
         
         public GameState CurrentState => _currentState;
         public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results;
@@ -56,6 +57,9 @@ namespace Multi.PR1
             if (_uiManager == null)
                 _uiManager = FindObjectOfType<GameUIManager>();
             
+            // Подписываемся на события отключения от сети
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnectedFromNetwork;
+            
             if (IsServer)
             {
                 NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
@@ -76,8 +80,23 @@ namespace Multi.PR1
             }
         }
         
+        // Обработка отключения от сети (хост упал)
+        private void OnClientDisconnectedFromNetwork(ulong clientId)
+        {
+            if (!IsServer && clientId == NetworkManager.Singleton.LocalClientId)
+            {
+                Debug.Log("[GameManager] Client disconnected from host! Restarting scene locally...");
+                StartCoroutine(RestartSceneWithFade());
+            }
+        }
+        
         public override void OnNetworkDespawn()
         {
+            if (NetworkManager.Singleton != null)
+            {
+                NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnectedFromNetwork;
+            }
+            
             if (IsServer && NetworkManager.Singleton != null)
             {
                 NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
@@ -104,7 +123,7 @@ namespace Multi.PR1
             if (_currentState == GameState.Lobby && NetworkManager.Singleton.ConnectedClients.Count >= _targetPlayers && !_countdownStarted)
             {
                 Debug.Log($"[GameManager] Target players reached! Starting countdown...");
-                StartCountdown();
+                StartCoroutine(StartCountdownWithFade());
             }
         }
         
@@ -158,6 +177,47 @@ namespace Multi.PR1
             {
                 _uiManager.UpdateWaitingPlayersText(current, target);
             }
+        }
+        
+        private IEnumerator StartCountdownWithFade()
+        {
+            // Показываем fade экран перед началом игры
+            yield return StartCoroutine(FadeIn());
+            
+            yield return new WaitForSeconds(0.5f);
+            
+            StartCountdown();
+            
+            // Скрываем fade после начала отсчёта
+            yield return StartCoroutine(FadeOut());
+        }
+        
+        private IEnumerator FadeIn()
+        {
+            if (_fadeCanvas == null) yield break;
+            
+            float elapsed = 0;
+            while (elapsed < _fadeDuration)
+            {
+                elapsed += Time.deltaTime;
+                _fadeCanvas.alpha = Mathf.Clamp01(elapsed / _fadeDuration);
+                yield return null;
+            }
+            _fadeCanvas.alpha = 1;
+        }
+        
+        private IEnumerator FadeOut()
+        {
+            if (_fadeCanvas == null) yield break;
+            
+            float elapsed = 0;
+            while (elapsed < _fadeDuration)
+            {
+                elapsed += Time.deltaTime;
+                _fadeCanvas.alpha = 1 - Mathf.Clamp01(elapsed / _fadeDuration);
+                yield return null;
+            }
+            _fadeCanvas.alpha = 0;
         }
         
         private void StartCountdown()
@@ -219,7 +279,7 @@ namespace Multi.PR1
         private void HideWaitingTextClientRpc()
         {
             if (_uiManager != null)
-                _uiManager.UpdateWaitingPlayersText(_targetPlayers, _targetPlayers); // Скрывает текст
+                _uiManager.UpdateWaitingPlayersText(_targetPlayers, _targetPlayers);
         }
         
         [ClientRpc]
@@ -333,9 +393,6 @@ namespace Multi.PR1
             SetState(GameState.Results);
             _resultsTimeRemaining = _resultsDuration;
             
-            // Скрываем Game UI
-            HideGameUIClientRpc();
-            
             var resultsData = new ResultsData();
             resultsData.WinnerId = 0;
             
@@ -351,17 +408,13 @@ namespace Multi.PR1
         }
         
         [ClientRpc]
-        private void HideGameUIClientRpc()
-        {
-            if (_uiManager != null)
-                _uiManager.ShowGameUI(false);
-        }
-        
-        [ClientRpc]
         private void ShowResultsClientRpc(ResultsData resultsData)
         {
+            Debug.Log($"[GameManager] ShowResultsClientRpc called");
             if (_uiManager != null)
+            {
                 _uiManager.ShowResults(resultsData.PlayerNames.ToArray(), resultsData.PlayerScores.ToArray(), resultsData.WinnerId);
+            }
         }
         
         // Раздельный рестарт: сначала клиенты, потом через 3 секунды хост
@@ -374,13 +427,13 @@ namespace Multi.PR1
             
             if (!isHost)
             {
-                // Клиент: рестартим сразу после задержки
+                // Клиент: рестартим через 1 секунду
                 yield return new WaitForSeconds(1f);
                 StartCoroutine(RestartSceneWithFade());
             }
             else
             {
-                // Хост: ждём 3 секунды после окончания результатов
+                // Хост: ждём 3 секунды и рестартим
                 yield return new WaitForSeconds(3f);
                 StartCoroutine(RestartSceneWithFade());
             }
@@ -388,19 +441,13 @@ namespace Multi.PR1
         
         private IEnumerator RestartSceneWithFade()
         {
-            float elapsed = 0;
-            while (elapsed < _fadeDuration)
-            {
-                elapsed += Time.deltaTime;
-                if (_fadeCanvas != null)
-                    _fadeCanvas.alpha = Mathf.Clamp01(elapsed / _fadeDuration);
-                yield return null;
-            }
+            if (_fadeStarted) yield break;
+            _fadeStarted = true;
             
-            if (_fadeCanvas != null)
-                _fadeCanvas.alpha = 1;
-                
-            yield return new WaitForSeconds(0.1f);
+            // Показываем fade экран
+            yield return StartCoroutine(FadeIn());
+            
+            yield return new WaitForSeconds(0.5f);
             
             Time.timeScale = 1f;
             
@@ -408,7 +455,11 @@ namespace Multi.PR1
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             
-            NetworkManager.Singleton.Shutdown();
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            {
+                NetworkManager.Singleton.Shutdown();
+            }
+            
             yield return null;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
@@ -430,31 +481,26 @@ namespace Multi.PR1
         
         public void LeaveSession()
         {
+            Time.timeScale = 1f;
             StartCoroutine(LeaveSessionWithFade());
         }
         
         private IEnumerator LeaveSessionWithFade()
         {
+            yield return StartCoroutine(FadeIn());
+            
+            yield return new WaitForSeconds(0.5f);
+            
             Time.timeScale = 1f;
-            
-            float elapsed = 0;
-            while (elapsed < _fadeDuration)
-            {
-                elapsed += Time.deltaTime;
-                if (_fadeCanvas != null)
-                    _fadeCanvas.alpha = Mathf.Clamp01(elapsed / _fadeDuration);
-                yield return null;
-            }
-            
-            if (_fadeCanvas != null)
-                _fadeCanvas.alpha = 1;
-                
-            yield return new WaitForSeconds(0.1f);
             
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             
-            NetworkManager.Singleton.Shutdown();
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            {
+                NetworkManager.Singleton.Shutdown();
+            }
+            
             yield return null;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
@@ -484,7 +530,10 @@ namespace Multi.PR1
         public void SetTargetPlayersServerRpc(int count)
         {
             if (IsServer)
+            {
                 _targetPlayers = Mathf.Max(2, Mathf.Min(10, count));
+                Debug.Log($"[GameManager] Target players set to: {_targetPlayers}");
+            }
         }
         
         public int GetTargetPlayers()
