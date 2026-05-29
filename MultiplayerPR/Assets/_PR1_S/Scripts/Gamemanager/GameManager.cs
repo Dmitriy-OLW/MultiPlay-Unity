@@ -32,6 +32,7 @@ namespace Multi.PR1
         private bool _isGameFinished = false;
         private bool _countdownStarted = false;
         private Dictionary<ulong, PlayerResultData> _playerResults = new Dictionary<ulong, PlayerResultData>();
+        private bool _isRestarting = false;
         
         public GameState CurrentState => _currentState;
         public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results;
@@ -65,7 +66,7 @@ namespace Multi.PR1
             }
             else
             {
-                // Клиент: показываем Game UI с текстом ожидания
+                // Клиент: показываем Game UI сразу (убираем лобби)
                 if (_uiManager != null)
                 {
                     _uiManager.ShowLobbyUI(false);
@@ -90,6 +91,9 @@ namespace Multi.PR1
             
             Debug.Log($"[GameManager] Client {clientId} connected. Current players: {NetworkManager.Singleton.ConnectedClients.Count}/{_targetPlayers}");
             
+            // Показываем Game UI для ВСЕХ подключённых игроков (включая хоста)
+            ShowGameUIClientRpc();
+            
             if (_checkpointManager != null)
             {
                 _checkpointManager.InitializePlayerProgress(clientId);
@@ -101,6 +105,17 @@ namespace Multi.PR1
             {
                 Debug.Log($"[GameManager] Target players reached! Starting countdown...");
                 StartCountdown();
+            }
+        }
+        
+        [ClientRpc]
+        private void ShowGameUIClientRpc()
+        {
+            if (_uiManager != null)
+            {
+                _uiManager.ShowLobbyUI(false);
+                _uiManager.ShowGameUI(true);
+                Debug.Log($"[GameManager] Game UI shown on client");
             }
         }
         
@@ -141,12 +156,6 @@ namespace Multi.PR1
         {
             if (_uiManager != null)
             {
-                // Скрываем лобби и показываем Game UI при первом подключении
-                if (current == 1 && !IsServer)
-                {
-                    _uiManager.ShowLobbyUI(false);
-                    _uiManager.ShowGameUI(true);
-                }
                 _uiManager.UpdateWaitingPlayersText(current, target);
             }
         }
@@ -237,9 +246,9 @@ namespace Multi.PR1
             else if (_currentState == GameState.Results && IsServer)
             {
                 _resultsTimeRemaining -= Time.deltaTime;
-                if (_resultsTimeRemaining <= 0)
+                if (_resultsTimeRemaining <= 0 && !_isRestarting)
                 {
-                    StartCoroutine(RestartSceneWithFade());
+                    StartCoroutine(RestartSceneWithDelay());
                 }
             }
         }
@@ -355,6 +364,28 @@ namespace Multi.PR1
                 _uiManager.ShowResults(resultsData.PlayerNames.ToArray(), resultsData.PlayerScores.ToArray(), resultsData.WinnerId);
         }
         
+        // Раздельный рестарт: сначала клиенты, потом через 3 секунды хост
+        private IEnumerator RestartSceneWithDelay()
+        {
+            _isRestarting = true;
+            
+            // Определяем кто мы
+            bool isHost = NetworkManager.Singleton.IsHost;
+            
+            if (!isHost)
+            {
+                // Клиент: рестартим сразу после задержки
+                yield return new WaitForSeconds(1f);
+                StartCoroutine(RestartSceneWithFade());
+            }
+            else
+            {
+                // Хост: ждём 3 секунды после окончания результатов
+                yield return new WaitForSeconds(3f);
+                StartCoroutine(RestartSceneWithFade());
+            }
+        }
+        
         private IEnumerator RestartSceneWithFade()
         {
             float elapsed = 0;
@@ -381,7 +412,13 @@ namespace Multi.PR1
             yield return null;
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
-
+        
+        public void TogglePauseMenu()
+        {
+            if (_uiManager != null)
+                _uiManager.TogglePauseMenu();
+        }
+        
         public void ResumeGame()
         {
             if (_uiManager != null)

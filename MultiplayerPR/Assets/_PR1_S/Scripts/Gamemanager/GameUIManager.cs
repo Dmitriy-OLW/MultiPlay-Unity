@@ -1,5 +1,4 @@
-﻿using System;
-using TMPro;
+﻿using TMPro;
 using UnityEngine;
 using System.Collections.Generic;
 
@@ -55,12 +54,15 @@ namespace Multi.PR1
             
             Debug.Log("[GameUIManager] Started - Lobby visible");
         }
-
+        
         private void LateUpdate()
         {
-            throw new NotImplementedException();
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                TogglePauseMenu();
+            }
         }
-
+        
         public void ShowLobbyUI(bool show)
         {
             if (_lobbyPanel != null)
@@ -215,6 +217,20 @@ namespace Multi.PR1
             
             bool isActive = !_pauseMenuPanel.activeSelf;
             _pauseMenuPanel.SetActive(isActive);
+            
+            if (isActive)
+            {
+                Time.timeScale = 0f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            else
+            {
+                Time.timeScale = 1f;
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+            
             Debug.Log($"[GameUIManager] Pause menu: {(isActive ? "opened" : "closed")}");
         }
         
