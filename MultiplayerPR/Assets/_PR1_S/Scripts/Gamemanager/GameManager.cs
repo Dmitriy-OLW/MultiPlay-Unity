@@ -1,4 +1,4 @@
-﻿using Unity.Netcode;
+﻿﻿using Unity.Netcode;
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
@@ -302,21 +302,33 @@ namespace Multi.PR1
             }
         }
         
+        /// <summary>
+        /// Запуск музыки на всех клиентах (включая хост)
+        /// </summary>
+        [ClientRpc]
+        private void StartBackgroundMusicClientRpc()
+        {
+            if (_uiManager != null)
+            {
+                _uiManager.StartBackgroundMusic();
+                Debug.Log($"[GameManager] Background music started on client {NetworkManager.Singleton.LocalClientId}");
+            }
+        }
+        
         private IEnumerator StartCountdownWithFade()
         {
             Debug.Log($"[GameManager] StartCountdownWithFade START");
             
             SetInputBlockedClientRpc(true);
             
-            if (_uiManager != null)
-            {
-                _uiManager.StartBackgroundMusic();
-            }
+            // Запускаем музыку на ВСЕХ клиентах (включая хост)
+            StartBackgroundMusicClientRpc();
             
             yield return StartCoroutine(FadeIn());
             yield return new WaitForSeconds(0.5f);
             StartCountdown();
             yield return StartCoroutine(FadeOut());
+            
             Debug.Log($"[GameManager] StartCountdownWithFade END");
         }
         
