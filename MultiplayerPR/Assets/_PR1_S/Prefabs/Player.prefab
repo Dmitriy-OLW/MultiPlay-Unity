@@ -297,7 +297,6 @@ MonoBehaviour:
   _hpText: {fileID: 5373633574917617585}
   _ammoText: {fileID: 1067233271153080774}
   _scoreText: {fileID: 7014624132066649770}
-  _uiPanel: {fileID: 648053486376607721}
   _billboardObject: {fileID: 648053486376607721}
 --- !u!114 &2720708859901552727
 MonoBehaviour:
@@ -1456,9 +1455,9 @@ MonoBehaviour:
   m_fontSize: 0.45
   m_fontSizeBase: 0.45
   m_fontWeight: 400
-  m_enableAutoSizing: 0
-  m_fontSizeMin: 0.05
-  m_fontSizeMax: 72
+  m_enableAutoSizing: 1
+  m_fontSizeMin: 0.4
+  m_fontSizeMax: 0.45
   m_fontStyle: 0
   m_HorizontalAlignment: 1
   m_VerticalAlignment: 256

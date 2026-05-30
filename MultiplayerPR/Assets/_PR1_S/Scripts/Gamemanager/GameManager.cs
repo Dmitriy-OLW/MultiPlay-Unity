@@ -36,11 +36,12 @@ namespace Multi.PR1
         private bool _fadeStarted = false;
         private bool _fadeInProgress = false;
         private bool _resultsShown = false;
+        private bool _isInputBlocked = true;
         
         private Dictionary<ulong, CachedPlayerData> _cachedPlayerData = new Dictionary<ulong, CachedPlayerData>();
         
         public GameState CurrentState => _currentState;
-        public bool IsInputBlocked => _currentState == GameState.Starting || _currentState == GameState.Results;
+        public bool IsInputBlocked => _currentState == GameState.Lobby || _currentState == GameState.Starting || _currentState == GameState.Results;
         public float GameTimeRemaining => _gameTimeRemaining;
         
         private void Awake()
@@ -52,6 +53,8 @@ namespace Multi.PR1
                 
             if (_fadeCanvas != null)
                 _fadeCanvas.alpha = 0;
+                
+            _isInputBlocked = true;
                 
             Debug.Log($"[GameManager] Awake - Instance set");
         }
@@ -93,6 +96,8 @@ namespace Multi.PR1
                 StartCoroutine(ShowFadeAtStart());
             }
             
+            SetInputBlockedClientRpc(true);
+            
             Debug.Log($"[GameManager] OnNetworkSpawn END");
         }
         
@@ -113,6 +118,54 @@ namespace Multi.PR1
             }
             _fadeCanvas.alpha = 0;
             Debug.Log($"[GameManager] ShowFadeAtStart END");
+        }
+        
+        [ClientRpc]
+        public void ShowDeathFadeClientRpc(ulong playerId)
+        {
+            if (NetworkManager.Singleton.LocalClientId == playerId)
+            {
+                StartCoroutine(DeathFadeCoroutine());
+            }
+        }
+        
+        private IEnumerator DeathFadeCoroutine()
+        {
+            if (_fadeCanvas == null) yield break;
+            
+            float shortFade = 0.3f;
+            float elapsed = 0;
+            
+            while (elapsed < shortFade)
+            {
+                elapsed += Time.deltaTime;
+                _fadeCanvas.alpha = Mathf.Clamp01(elapsed / shortFade);
+                yield return null;
+            }
+            _fadeCanvas.alpha = 1;
+            
+            yield return new WaitForSeconds(0.5f);
+            
+            elapsed = 0;
+            while (elapsed < shortFade)
+            {
+                elapsed += Time.deltaTime;
+                _fadeCanvas.alpha = 1 - Mathf.Clamp01(elapsed / shortFade);
+                yield return null;
+            }
+            _fadeCanvas.alpha = 0;
+        }
+        
+        [ClientRpc]
+        public void SetInputBlockedClientRpc(bool blocked)
+        {
+            _isInputBlocked = blocked;
+            Debug.Log($"[GameManager] Input blocked = {blocked}");
+        }
+        
+        public bool IsInputBlockedForPlayer()
+        {
+            return _isInputBlocked;
         }
         
         public void SetTargetPlayers(int count)
@@ -253,7 +306,8 @@ namespace Multi.PR1
         {
             Debug.Log($"[GameManager] StartCountdownWithFade START");
             
-            // Запускаем музыку перед началом отсчёта
+            SetInputBlockedClientRpc(true);
+            
             if (_uiManager != null)
             {
                 _uiManager.StartBackgroundMusic();
@@ -344,6 +398,11 @@ namespace Multi.PR1
             Debug.Log($"[GameManager] UpdateCountdownClientRpc on client {NetworkManager.Singleton.LocalClientId}: {remainingTime}");
             if (_uiManager != null)
                 _uiManager.UpdateCountdown(remainingTime);
+                
+            if (remainingTime > 0 || remainingTime < 0)
+            {
+                _isInputBlocked = true;
+            }
         }
         
         private void StartGame()
@@ -356,6 +415,8 @@ namespace Multi.PR1
             _gameTimeRemaining = _gameDuration;
             _isGameFinished = false;
             _resultsShown = false;
+            
+            SetInputBlockedClientRpc(false);
             
             CacheAllPlayersDataAndSubscribe();
             
@@ -561,11 +622,12 @@ namespace Multi.PR1
             
             Debug.Log($"[GameManager] EndGame - Ending game!");
             
+            SetInputBlockedClientRpc(true);
+            
             _resultsShown = true;
             SetState(GameState.Results);
             _resultsTimeRemaining = _resultsDuration;
             
-            // Останавливаем музыку
             if (_uiManager != null)
             {
                 _uiManager.StopBackgroundMusic();

@@ -22,9 +22,13 @@ namespace Multi.PR1
         private void Update()
         {
             if (!IsOwner) return;
-            
-            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
     
+            // Проверка на блокировку инпута от GameManager
+            if (GameManager.Instance != null && GameManager.Instance.IsInputBlockedForPlayer())
+                return;
+    
+            if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
+
             if (_playerCamera == null)
                 _playerCamera = Camera.main;
 

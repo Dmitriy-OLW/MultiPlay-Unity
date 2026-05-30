@@ -544,19 +544,19 @@ namespace Multi.PR1
         {
             if (!IsServer) return;
             if (!IsAlive.Value) return;
-            
+    
             Debug.Log($"[PlayerNetwork] Player {OwnerClientId} died!");
-            
+
             if (PlayerSpawner.Instance != null)
             {
                 PlayerSpawner.Instance.ReleaseSpawnPoint(OwnerClientId);
             }
-            
+    
             IsAlive.Value = false;
-            
+    
             if (_respawnCoroutine != null)
                 StopCoroutine(_respawnCoroutine);
-            
+    
             _respawnCoroutine = StartCoroutine(RespawnRoutine());
         }
         
@@ -577,6 +577,11 @@ namespace Multi.PR1
         private IEnumerator RespawnRoutine()
         {
             yield return new WaitForSeconds(_respawnDelay);
+            
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.ShowDeathFadeClientRpc(OwnerClientId);
+            }
             
             Transform spawnPoint = null;
             if (PlayerSpawner.Instance != null)

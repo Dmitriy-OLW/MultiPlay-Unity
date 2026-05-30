@@ -38,17 +38,11 @@ namespace Multi.PR1
         private void Update()
         {
             if (!IsOwner) return;
-            
+    
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
-            
+    
             // Проверяем состояние курсора через CarCameraController
             if (_cameraController != null && !IsCursorLocked()) return;
-            
-            // Смена цвета
-            if (Input.GetKeyDown(KeyCode.P))
-            {
-                _playerNetwork.RequestRandomColorServerRpc();
-            }
             
             // Циклическая смена скина
             if (Input.GetKeyDown(KeyCode.O))
@@ -56,13 +50,23 @@ namespace Multi.PR1
                 _playerNetwork.CycleSkin();
                 Debug.Log($"[PlayerInputHandler] Cycling skin for player {OwnerClientId}");
             }
-    
+            
+            // Проверка на блокировку инпута от GameManager
+            if (GameManager.Instance != null && GameManager.Instance.IsInputBlockedForPlayer())
+                return;
+            
+            // Смена цвета
+            if (Input.GetKeyDown(KeyCode.P))
+            {
+                _playerNetwork.RequestRandomColorServerRpc();
+            }
+
             // Стрельба
             if (Input.GetMouseButtonDown(0))
             {
                 Vector3 shootDirection = GetShootDirection();
                 Vector3 shootPosition = GetShootPosition();
-                
+        
                 _playerNetwork.ShootServerRpc(shootPosition, shootDirection);
                 Debug.Log($"[PlayerInputHandler] Player {OwnerClientId} shot with direction {shootDirection}");
             }

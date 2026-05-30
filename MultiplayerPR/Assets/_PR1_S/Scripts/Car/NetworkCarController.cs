@@ -221,16 +221,20 @@ namespace Multi.PR1
                     Debug.Log($"[CarController] Interpolation enabled for client {OwnerClientId}");
                 }
             }
-            
+    
             if (!IsOwner) 
             {
                 ApplySyncedVisuals();
                 ApplyPositionInterpolation();
                 return;
             }
-            
+    
+            // Проверка на блокировку инпута от GameManager
+            if (GameManager.Instance != null && GameManager.Instance.IsInputBlockedForPlayer())
+                return;
+    
             if (_playerNetwork != null && !_playerNetwork.IsAlive.Value) return;
-            
+    
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (_cameraController != null)
@@ -238,7 +242,7 @@ namespace Multi.PR1
                     _cameraController.ToggleCursorLock();
                 }
             }
-            
+    
             if (Cursor.lockState != CursorLockMode.Locked)
             {
                 return;
@@ -246,17 +250,21 @@ namespace Multi.PR1
 
             HandleCarInput();
             HandleRespawn();
-            HandleSelfKill();
-            
+            HandleSelfKill(); // Self kill (K) будет работать только когда игра активна
+    
             if (Time.time - _lastSyncTime > _syncRate)
             {
                 SendCarStateToServer();
                 _lastSyncTime = Time.time;
             }
         }
-        
+
         private void HandleSelfKill()
         {
+            // Self kill доступен только во время игры
+            if (GameManager.Instance != null && GameManager.Instance.CurrentState != GameState.Playing)
+                return;
+        
             if (Input.GetKeyDown(_selfKillKey))
             {
                 Debug.Log($"[CarController] Player {OwnerClientId} requested self kill");

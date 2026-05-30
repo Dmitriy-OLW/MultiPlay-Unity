@@ -58,6 +58,32 @@ namespace Multi.PR1
             Debug.Log($"Started as Host with nickname: {PlayerNickname}, will wait for {playerCount} players");
         }
         
+        public void StartAsServer()
+        {
+            SaveNickname();
+            int playerCount = GetPlayerCount();
+            
+            Debug.Log($"[ConnectionUI] Starting as Server with player count: {playerCount}");
+            
+            // Запускаем только сервер (без клиента)
+            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+            if (transport != null)
+            {
+                transport.SetConnectionData("0.0.0.0", 7777);
+            }
+            
+            NetworkManager.Singleton.StartServer();
+            
+            // Ждём инициализации и устанавливаем количество игроков
+            StartCoroutine(SetPlayerCountAfterStart(playerCount));
+            
+            // Скрываем лобби
+            if (_lobbyPanel != null)
+                _lobbyPanel.SetActive(false);
+            
+            Debug.Log($"Started as Server with nickname: {PlayerNickname}, will wait for {playerCount} players");
+        }
+        
         private IEnumerator SetPlayerCountAfterStart(int playerCount)
         {
             // Ждём, пока NetworkManager полностью инициализируется
